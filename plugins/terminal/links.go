@@ -6,14 +6,20 @@ import (
 	"unicode"
 )
 
+// cjkStop is the punctuation of Chinese and Japanese text, which ends a
+// URL or path as a space does: the ideographic space and the CJK symbols,
+// fullwidth punctuation, curly quotes and the ellipsis. CJK letters do
+// not, so paths such as ~/文档/笔记.md stay whole.
+const cjkStop = `\x{3000}-\x{303F}\x{FF01}-\x{FF0F}\x{FF1A}-\x{FF20}\x{FF3B}-\x{FF40}\x{FF5B}-\x{FF65}\x{2018}-\x{201F}\x{2026}`
+
 // urlPattern finds the URLs programs print as text, which a Command+click
 // opens as it does hyperlinks.
-var urlPattern = regexp.MustCompile(`(?:https?|ftp|file)://[^\s"'<>` + "`" + `\x00-\x1f]+|mailto:[^\s"'<>` + "`" + `]+`)
+var urlPattern = regexp.MustCompile(`(?:https?|ftp|file)://[^\s"'<>` + "`" + `\x00-\x1f` + cjkStop + `]+|mailto:[^\s"'<>` + "`" + cjkStop + `]+`)
 
 // pathPattern finds the file paths programs print as text: absolute, from
 // ~, ./ or ../, with a slash, or a file name with an extension; each may end in
 // :line or :line:col.
-var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:]+|[\w.@+-]+(?:/[\w.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
+var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:` + cjkStop + `]+|[\w.@+-]+(?:/[\w.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
 
 // urlAt returns the URL of text, a row whose runes are in columns cols, at
 // column col, and the columns it spans, x0 up to x1, or "".

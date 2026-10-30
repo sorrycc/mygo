@@ -21,6 +21,19 @@ func TestURLAt(t *testing.T) {
 			t.Errorf("urlAt(%d) = %q, want %q", col, got, want)
 		}
 	}
+	text = []rune("见 https://x.org/a，然后 mailto:me@x.org。")
+	cols = make([]int, len(text))
+	for i := range cols {
+		cols[i] = i
+	}
+	for col, want := range map[int]string{
+		4:  "https://x.org/a",
+		24: "mailto:me@x.org",
+	} {
+		if got, _, _ := urlAt(text, cols, col); got != want {
+			t.Errorf("urlAt(%d) = %q, want %q", col, got, want)
+		}
+	}
 }
 
 func TestPathAt(t *testing.T) {
@@ -39,6 +52,10 @@ func TestPathAt(t *testing.T) {
 		{"notes.md (new file +2)", 2, "notes.md"},
 		{"See notes.md.", 7, "notes.md"},
 		{"notes.md:2:3", 2, "notes.md:2:3"},
+		{"放在 ~/Downloads/articles/how-i-work-with-agents/，目录结构沿用了", 10, "~/Downloads/articles/how-i-work-with-agents/"},
+		{"打开 ~/文档/笔记.md。", 6, "~/文档/笔记.md"},
+		{"见 /tmp/a.txt\u3000然后", 5, "/tmp/a.txt"},
+		{"“/tmp/a.txt”", 4, "/tmp/a.txt"},
 		{"just words here", 5, ""},
 		{"version 1.2.3 ok", 9, ""},
 	} {
@@ -72,5 +89,21 @@ func TestURLAtSpan(t *testing.T) {
 	}
 	if url, x0, x1 := urlAt(text, cols, 10); url != "https://x.org/a" || x0 != 6 || x1 != 21 {
 		t.Errorf("urlAt = %q %d..%d, want https://x.org/a 6..21", url, x0, x1)
+	}
+}
+
+func TestPathAtSpanWide(t *testing.T) {
+	// The CJK runes take two cells each.
+	text := []rune("放在 ~/a/，目录")
+	cols := make([]int, len(text))
+	for i, x := 0, 0; i < len(text); i++ {
+		cols[i] = x
+		x++
+		if text[i] > 0x2e80 {
+			x++
+		}
+	}
+	if path, x0, x1 := pathAt(text, cols, 6); path != "~/a/" || x0 != 5 || x1 != 9 {
+		t.Errorf("pathAt = %q %d..%d, want ~/a/ 5..9", path, x0, x1)
 	}
 }
