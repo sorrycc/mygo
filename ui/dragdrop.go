@@ -18,7 +18,9 @@ const dragStart = 4
 
 // valueDrag is a value being dragged: the element dragging it, the value,
 // where the pointer pressed the element, the element taking it under the
-// pointer, and the source's element in the frame, for its copy.
+// pointer, and the source's element in the frame, for its copy. ghost
+// is a copy of the source as it first showed, which follows the pointer
+// once the frame builds the source no more, as a view it was in went.
 type valueDrag struct {
 	src      uint64
 	value    any
@@ -26,6 +28,7 @@ type valueDrag struct {
 	offY     float32
 	over     uint64
 	elem     *node
+	ghost    *node
 	canceled bool
 	native   bool
 }
@@ -303,10 +306,16 @@ func (rt *engine) dragScroll() {
 // pointer, above the rest.
 func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	d := rt.drag
-	if d == nil || d.canceled || d.native || d.elem == nil || d.elem.c == nil {
+	if d == nil || d.canceled || d.native {
 		return
 	}
 	e := d.elem
+	if e == nil {
+		e = d.ghost
+	}
+	if e == nil || e.c == nil {
+		return
+	}
 	px, py := e.world.Point(e.x+d.offX, e.y+d.offY)
 	dx, dy := rt.pointerX-px, rt.pointerY-py
 	affine := hasVisualTransform(e)
@@ -335,6 +344,28 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 		restoreVisual(e)
 	} else {
 		shift(e, -dx, -dy)
+	}
+}
+
+// dragGhost copies the element e dragging its value, with its children,
+// for its copy to follow the pointer once the frame builds e no more. The
+// copy keeps the text e laid out, as it is laid out no more.
+func dragGhost(e *node) *node {
+	g := ghostOf(e)
+	keepTextLayouts(g, e)
+	return g
+}
+
+// keepTextLayouts gives the copy g of e, and those of its children, the
+// text e and its children laid out.
+func keepTextLayouts(g, e *node) {
+	g.tl = e.tl
+	c := g.first
+	for ec := e.first; ec != nil && c != nil; ec = ec.next {
+		if ec.leaving == 0 {
+			keepTextLayouts(c, ec)
+			c = c.next
+		}
 	}
 }
 
