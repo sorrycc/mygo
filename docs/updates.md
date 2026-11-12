@@ -110,7 +110,10 @@ Publish the files where `updates` points to:
   whose files are missing.
 
 Each platform, such as `darwin-arm64`, `darwin-universal` or
-`windows-amd64`, has its own manifest, and a build only looks at its own.
+`windows-amd64`, has its own manifest, and a build only looks at its own,
+but for one: an Intel build that Rosetta translates on Apple Silicon
+(`App.IsTranslated()`) looks at `darwin-arm64`'s, so its next update
+installs the Apple Silicon build, from the whole archive.
 
 ### Prereleases
 

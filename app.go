@@ -365,6 +365,11 @@ func (a *Application) IsPackaged() bool {
 	return ok
 }
 
+// IsTranslated reports whether Rosetta translates the app: an Intel build
+// that runs on a Mac with Apple Silicon, slower and less stable than the
+// Apple Silicon build. Updater.Check then offers the Apple Silicon build.
+func (a *Application) IsTranslated() bool { return translated() }
+
 // SetMenu sets the application menu: the menu bar on macOS and the menu bar
 // of windows without their own menu on Linux and Windows. nil removes it.
 // Without a call to SetMenu a default menu with the usual App, Edit, View

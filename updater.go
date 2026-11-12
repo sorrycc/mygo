@@ -101,7 +101,23 @@ func (u *UpdaterModule) Check(ctx context.Context) (*Update, error) {
 	if !u.Enabled() {
 		return nil, ErrUpdatesDisabled
 	}
-	return checkUpdate(ctx, packageUpdateFeed, packageUpdateKey, App.Version(), prereleases.Load())
+	feed := nativeFeed(packageUpdateFeed, runtime.GOOS, runtime.GOARCH, translated())
+	return checkUpdate(ctx, feed, packageUpdateKey, App.Version(), prereleases.Load())
+}
+
+// nativeFeed returns the feed of the Apple Silicon build for feed, the
+// feed of the Intel build, when Rosetta translates it (translated), so
+// that the next update installs the build the Mac runs natively; feed
+// otherwise. A delta of the Apple Silicon build fails on the Intel app,
+// so that update downloads the whole archive.
+func nativeFeed(feed, goos, goarch string, translated bool) string {
+	if goos != "darwin" || goarch != "amd64" || !translated {
+		return feed
+	}
+	if base, ok := strings.CutSuffix(feed, "/"+update.ManifestName("darwin-amd64")); ok {
+		return base + "/" + update.ManifestName("darwin-arm64")
+	}
+	return feed
 }
 
 // SetPrereleases makes Check offer prereleases too, such as 1.3.0-beta.1,

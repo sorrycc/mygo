@@ -261,7 +261,8 @@ again.
 `mygo.IsDev()` reports whether the app is a development build: `go run`,
 `go build` and `mygo dev` builds are, `mygo build` builds are not, and
 `MYGO_ENV=production` makes any build behave like one. `App.IsPackaged()`
-reports whether it runs from an app bundle. `App.Locale()` returns the
+reports whether it runs from an app bundle, and `App.IsTranslated()`
+whether it is an Intel build that Rosetta runs on Apple Silicon. `App.Locale()` returns the
 language the app shows, such as `"zh-Hans"`, of those it is written in,
 and `App.PreferredLanguages()` the languages the user reads, as the system
 lists them; see [the language the app shows](i18n.md#the-language-the-app-shows).

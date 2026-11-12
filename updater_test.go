@@ -377,3 +377,33 @@ func TestUpdaterPrereleases(t *testing.T) {
 		t.Error("SetPrereleases(false) did not turn them off")
 	}
 }
+
+func TestNativeFeed(t *testing.T) {
+	const (
+		intel  = "https://example.com/updates/update-darwin-amd64.json"
+		arm    = "https://example.com/updates/update-darwin-arm64.json"
+		tagged = "https://github.com/o/r/releases/download/v{version}/update-darwin-amd64.json"
+	)
+	for _, tt := range []struct {
+		feed, goos, goarch string
+		translated         bool
+		want               string
+	}{
+		{intel, "darwin", "amd64", true, arm},
+		{tagged, "darwin", "amd64", true, "https://github.com/o/r/releases/download/v{version}/update-darwin-arm64.json"},
+		{intel, "darwin", "amd64", false, intel},
+		{arm, "darwin", "arm64", false, arm},
+		{"https://example.com/update-darwin-universal.json", "darwin", "amd64", true, "https://example.com/update-darwin-universal.json"},
+		{"https://example.com/update-windows-amd64.json", "windows", "amd64", true, "https://example.com/update-windows-amd64.json"},
+	} {
+		if got := nativeFeed(tt.feed, tt.goos, tt.goarch, tt.translated); got != tt.want {
+			t.Errorf("nativeFeed(%q, %s/%s, %v) = %q, want %q", tt.feed, tt.goos, tt.goarch, tt.translated, got, tt.want)
+		}
+	}
+}
+
+func TestTranslatedNative(t *testing.T) {
+	if runtime.GOARCH == "arm64" && translated() {
+		t.Error("translated() = true for an Apple Silicon build")
+	}
+}
