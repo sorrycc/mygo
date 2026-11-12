@@ -5551,6 +5551,22 @@ func (_handle Element) SubmittedMods() Modifiers {
 	return _node.SubmittedMods()
 }
 
+// TabSize puts the tab stops of the element's text every n spaces of its
+// font from the start of each line, as CSS's tab-size: a tab advances
+// to the next of them, as a code block indents with tabs of 2 or 4
+// columns. A space is as wide as the font's, letter spacing included.
+// Without it, or with n at 0, tabs advance as the system's text stack
+// sets them, which differs between systems.
+func (_handle Element) TabSize(n float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TabSize(n))
+}
+
 // TextAlign aligns the lines of text: Start, Center or End.
 func (_handle Element) TextAlign(a Align) Element {
 	_node := _handle.node()

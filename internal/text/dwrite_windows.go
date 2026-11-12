@@ -822,6 +822,10 @@ func (e *dwrite) shape(text []rune, style Style, spans []Span, width float32, rt
 		wrapping = wordWrappingWholeWord
 	}
 	call(layout, formatSetWordWrapping, wrapping)
+	if style.tabStop > 0 {
+		// A text layout is a text format: its stops are the style's.
+		method[func(this uintptr, stop float32) uintptr](layout, formatSetIncrementalTabStop)(layout, style.tabStop)
+	}
 	e.typeset(layout, style, spans, text)
 	if rtl {
 		// Trailing alignment keeps the lines at the left, as left-to-right

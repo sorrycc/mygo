@@ -357,6 +357,9 @@ func textStyles(ts *textStyle, set uint32) []inspDecl {
 	if set&setLang != 0 {
 		add("lang", ts.lang)
 	}
+	if set&setTabSize != 0 {
+		add("tab-size", strconv.FormatFloat(float64(ts.tabSize), 'f', -1, 32))
+	}
 	var deco []string
 	if set&setUnderline != 0 && ts.underline {
 		if ts.wavy {

@@ -3,6 +3,7 @@ package ui
 import (
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
@@ -169,6 +170,8 @@ type textStyle struct {
 	features   string
 	// lang is the language of the text, a BCP 47 tag (Lang).
 	lang string
+	// tabSize puts tab stops every tabSize spaces (TabSize).
+	tabSize float32
 	// decoColor and decoThick are those of underlines and strikethroughs;
 	// background is behind the text.
 	decoColor  Color
@@ -195,9 +198,10 @@ const (
 	setBackground
 	setSelection
 	setLang
+	setTabSize
 
 	// setAll has every bit of textStyle.set.
-	setAll = setLang<<1 - 1
+	setAll = setTabSize<<1 - 1
 )
 
 // layoutStyle is what lays an element out, of what the view sets on it:
@@ -1312,6 +1316,25 @@ func (e *node) Lang(tag string) *node {
 	}
 	return e
 }
+
+// TabSize puts the tab stops of the element's text every n spaces of its
+// font from the start of each line, as CSS's tab-size: a tab advances
+// to the next of them, as a code block indents with tabs of 2 or 4
+// columns. A space is as wide as the font's, letter spacing included.
+// Without it, or with n at 0, tabs advance as the system's text stack
+// sets them, which differs between systems.
+func (e *node) TabSize(n float32) *node {
+	if n > 0 {
+		linkTabs.Do(text.Shared().UseTabSize)
+	}
+	e.ts.tabSize = max(n, 0)
+	e.ts.set |= setTabSize
+	return e
+}
+
+// linkTabs lets the text system set tab stops once an element sets a tab
+// size, so that apps that never do not link it.
+var linkTabs sync.Once
 
 // MaxLines shows at most n lines of the element's text, ending it with an
 // ellipsis.
