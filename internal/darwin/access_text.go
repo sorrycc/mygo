@@ -19,7 +19,10 @@ func attributedAccessString(n *platform.AccessNode, r nsRange) id {
 	hi := int(min(uint(lo)+r.Length, uint(len(u))))
 	str := nsString(string(utf16.Decode(u[lo:hi])))
 	as := autorelease(send(send(class("NSMutableAttributedString"), "alloc"), "initWithString:", uintptr(str)))
-	if hi == lo {
+	// Attributes past the string's end raise and abort the app, so a
+	// string shorter than the range keeps only the attributes it holds.
+	hi = min(hi, lo+sendInt(as, "length"))
+	if hi <= lo {
 		return as
 	}
 	// The UTF-16 offset of each rune.

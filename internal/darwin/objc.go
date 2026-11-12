@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -375,6 +376,16 @@ const nsUTF8StringEncoding = 4
 
 // nsString returns an autoreleased NSString.
 func nsString(s string) id {
+	if strings.HasPrefix(s, "\ufeff") {
+		// Decoding UTF-8 drops a leading U+FEFF as a byte order mark, and
+		// the string would be a unit shorter than s; UTF-16 characters keep
+		// it.
+		u := utf16.Encode([]rune(s))
+		str := send(send(class("NSString"), "alloc"), "initWithCharacters:length:",
+			uintptr(unsafe.Pointer(&u[0])), uintptr(len(u)))
+		runtime.KeepAlive(u)
+		return autorelease(str)
+	}
 	b := unsafe.StringData(s)
 	str := send(send(class("NSString"), "alloc"), "initWithBytes:length:encoding:",
 		uintptr(unsafe.Pointer(b)), uintptr(len(s)), nsUTF8StringEncoding)
