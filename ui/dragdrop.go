@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/transfer"
 )
@@ -231,6 +233,22 @@ func (rt *engine) handPress(x, y float32) *state {
 	a.pressX, a.pressY = a.local(px, py)
 	a.drag.reset(rt.now(), px, py)
 	return a
+}
+
+// retarget makes the element taking the value dragged under a pointer
+// that did not move, as one the frame moved there or built anew in a view
+// that just showed, the one the value is over, and builds the frame anew
+// for it to show it.
+func (rt *engine) retarget() {
+	d := rt.drag
+	if d == nil || d.native || d.canceled || !rt.pointerIn {
+		return
+	}
+	if t := rt.valueTarget(rt.pointerX, rt.pointerY, d.value); t != d.over {
+		d.over = t
+		rt.redraw, rt.repaintDue = false, time.Time{}
+		rt.host.requestFrame()
+	}
 }
 
 // dragEnd drops the value dragged on the element taking it under the

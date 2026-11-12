@@ -712,6 +712,7 @@ func (rt *engine) runFrame() {
 	// the pointer is over now hovers rather than what it was over as the
 	// press began.
 	rt.rehover()
+	rt.retarget()
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
