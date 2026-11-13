@@ -224,3 +224,29 @@ func TestPangoGrayGlyphsWithSubpixels(t *testing.T) {
 		}
 	}
 }
+
+// A space in a span of an object takes the object's room, as it does on
+// the other engines: Pango keeps its own advance, which moved the text
+// after it.
+func TestPangoObjectHidesSpace(t *testing.T) {
+	s := newSystem()
+	st := Style{Size: 13}
+	plain := s.Layout(Params{Text: "- [ ] task item", Style: st, KeepSpaces: true})
+	const hidden = 1.0 / 4096
+	box := s.Layout(Params{Text: "- [ ]", Style: st, KeepSpaces: true}).Width
+	spans := EncodeSpans([]Span{
+		{End: 2, ObjectWidth: hidden},
+		{End: 3, ObjectWidth: box, ObjectHeight: 12.35, ObjectDescent: 2.6},
+		{End: 5, ObjectWidth: hidden},
+		{End: 14},
+	})
+	l := s.Layout(Params{Text: "- [ ] task item", Style: st, KeepSpaces: true, Spans: spans})
+	if len(l.Lines) != 1 || len(l.Lines[0].Glyphs) != len(plain.Lines[0].Glyphs) {
+		t.Fatalf("%d lines, %d glyphs", len(l.Lines), len(l.Lines[0].Glyphs))
+	}
+	for i, g := range l.Lines[0].Glyphs {
+		if x := plain.Lines[0].Glyphs[i].X; g.X-x > 0.01 || x-g.X > 0.01 {
+			t.Errorf("glyph %d is at %v, not at %v", i, g.X, x)
+		}
+	}
+}

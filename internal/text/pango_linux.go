@@ -737,6 +737,11 @@ func (e *pangoEngine) shape(text []rune, style Style, spans []Span, width float3
 					if g.glyph == pangoGlyphEmpty && g.width == 0 && cluster < len(text) && unicode.IsSpace(text[cluster]) {
 						g.glyph, g.width = e.space(item.font, text[cluster])
 					}
+					if o := objectAt(spans, cluster); o != nil {
+						// Pango keeps a space's own advance inside an object's
+						// span, whatever its box: the box is the room it takes.
+						g.width, g.xOffset = int32(math.Round(float64(o.ObjectWidth)*pangoScale)), 0
+					}
 					sr.glyphs[j] = Glyph{
 						Font: f, ID: g.glyph,
 						X: float32(x+g.xOffset) / pangoScale, Y: float32(g.yOffset) / pangoScale,
