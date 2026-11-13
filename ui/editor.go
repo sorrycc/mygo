@@ -80,6 +80,8 @@ type editor struct {
 	// sorted and apart, which blockFn paints (DrawBlocks).
 	blocks  []TextBlock
 	blockFn func(p *Painter, b TextBlock, r Rect)
+	// gaps put room above paragraphs (TextGaps), sorted by paragraph.
+	gaps []TextGap
 	// paintStyles, paintSpans and painted hold what rangeSpans returns to
 	// paint a text, used again for the next: painting keeps none.
 	paintStyles []text.Span

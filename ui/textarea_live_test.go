@@ -157,3 +157,45 @@ func TestTextBlocksComeAndGo(t *testing.T) {
 		}
 	}
 }
+
+// TextGaps put room above a paragraph: the lines after it move down by
+// it, its text and caret stand below it, and a click in it lands on the
+// paragraph's first line.
+func TestTextGaps(t *testing.T) {
+	s := "a\n# b\nc"
+	gaps := []TextGap{{Para: 1, Height: 20}}
+	var lines TextLines
+	var el *node
+	tt := coreNewTester(func(c *context) {
+		el = coreTextAreaBase(c, &s).Fill().TrackLines(&lines).TextGaps(gaps...)
+	}, 300, 400)
+	tt.Frame()
+	ed := el.st.editor
+	a := ed.area
+	line := float64(a.paraLayout(ed, 0).Height)
+	if h := float64(a.paraLayout(ed, 1).Height); h < line+20-0.5 || h > line+20+0.5 {
+		t.Errorf("the paragraph with a gap is %v high, want %v", h, line+20)
+	}
+	if top := a.hs.top(2); top < 2*line+20-0.5 || top > 2*line+20+0.5 {
+		t.Errorf("the line after the gap starts at %v, want %v", top, 2*line+20)
+	}
+	_, y, _ := a.caretAt(ed, 2, 0)
+	if y < line+20-0.5 {
+		t.Errorf("the caret of the paragraph stands at %v, in its gap", y)
+	}
+	if i := a.indexAt(ed, 0, line+5); i < 2 || i > 5 {
+		t.Errorf("a click in the gap lands at %d, want the paragraph's line", i)
+	}
+	// Without the gap, the paragraph is a line high again.
+	gaps = nil
+	tt.Frame()
+	if h := float64(a.paraLayout(ed, 1).Height); h > line+0.5 {
+		t.Errorf("without its gap, the paragraph is %v high", h)
+	}
+	// A gap for a paragraph that has one is left out.
+	ed.gaps = ed.gaps[:0]
+	el.TextGaps(TextGap{Para: 2, Height: 5}, TextGap{Para: 2, Height: 9}, TextGap{Para: 0, Height: 3})
+	if len(ed.gaps) != 2 || ed.gaps[0].Para != 0 || ed.gaps[1].Height != 5 {
+		t.Errorf("gaps %v", ed.gaps)
+	}
+}

@@ -58,7 +58,7 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 		ed.compose = ""
 	}
 	ed.rebuild()
-	ed.ranges, ed.blocks, ed.blockFn = ed.ranges[:0], ed.blocks[:0], nil
+	ed.ranges, ed.blocks, ed.blockFn, ed.gaps = ed.ranges[:0], ed.blocks[:0], nil, ed.gaps[:0]
 	e.onValueInput(stringInput)
 
 	return e
@@ -444,6 +444,45 @@ func (e *node) DrawBlocks(fn func(p *Painter, b TextBlock, r Rect)) *node {
 		ed.blockFn = fn
 	}
 	return e
+}
+
+// TextGap puts Height of room above paragraph Para of a text area, its
+// text below it, as a document leaves above a heading. The room is the
+// paragraph's: the caret and the selection go over its text alone, and a
+// click in the room lands on its first line.
+type TextGap struct {
+	Para   int
+	Height float32
+}
+
+// TextGaps puts room above paragraphs of a text area, in the frames that
+// call it. A gap given later for a paragraph that has one is left out, as
+// is one for a paragraph of a TextBlock.
+func (e *node) TextGaps(gaps ...TextGap) *node {
+	ed := e.st.editor
+	if ed == nil || ed.area == nil {
+		return e
+	}
+	for _, g := range gaps {
+		if g.Para < 0 || g.Height <= 0 {
+			continue
+		}
+		k := sort.Search(len(ed.gaps), func(i int) bool { return ed.gaps[i].Para >= g.Para })
+		if k < len(ed.gaps) && ed.gaps[k].Para == g.Para {
+			continue
+		}
+		ed.gaps = slices.Insert(ed.gaps, k, g)
+	}
+	return e
+}
+
+// gapAbove returns the room above paragraph p (TextGaps), 0 for none.
+func (ed *editor) gapAbove(p int) float32 {
+	k := sort.Search(len(ed.gaps), func(i int) bool { return ed.gaps[i].Para >= p })
+	if k < len(ed.gaps) && ed.gaps[k].Para == p {
+		return ed.gaps[k].Height
+	}
+	return 0
 }
 
 // blockAt returns the TextBlock holding paragraph p.

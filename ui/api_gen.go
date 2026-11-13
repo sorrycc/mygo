@@ -5655,6 +5655,19 @@ func (_handle Element) TextColor(c Color) Element {
 	return wrapElement(_node.TextColor(c))
 }
 
+// TextGaps puts room above paragraphs of a text area, in the frames that
+// call it. A gap given later for a paragraph that has one is left out, as
+// is one for a paragraph of a TextBlock.
+func (_handle Element) TextGaps(gaps ...TextGap) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TextGaps(gaps...))
+}
+
 // TextRanges styles runs of a text input's text, in the frames that call
 // it. Ranges may overlap and nest, as the attributes of an attributed
 // string do: where they do, each attribute is that of the last range

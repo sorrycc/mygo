@@ -81,6 +81,9 @@ type paragraph struct {
 	// block is the height of the TextBlock the paragraph is of as its
 	// layout took it, -1 for none.
 	block float32
+	// gap is the room above the paragraph (TextGaps) as its layout took
+	// it.
+	gap float32
 	// h is the paragraph's height as it was laid out last, once known is
 	// set: a paragraph of a TextBlock may be 0 high.
 	h     float32

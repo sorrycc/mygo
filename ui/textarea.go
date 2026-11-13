@@ -159,15 +159,16 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 		compose = ed.compose
 	}
 	block, inBlock := ed.blockHeight(p)
+	var gap float32
 	var spans string
 	if inBlock {
 		// Its text takes no room, the box of the block all there is.
 		n := b.end(p) - b.start(p) + utf8.RuneCountInString(compose)
 		spans = text.EncodeSpans([]text.Span{{End: n, ObjectWidth: hiddenWidth}})
 	} else {
-		spans, block = ed.rangeKey(b.start(p), b.end(p)), -1
+		spans, block, gap = ed.rangeKey(b.start(p), b.end(p)), -1, ed.gapAbove(p)
 	}
-	if pr.layout != nil && pr.compose == compose && pr.spans == spans && pr.block == block {
+	if pr.layout != nil && pr.compose == compose && pr.spans == spans && pr.block == block && pr.gap == gap {
 		return pr.layout
 	}
 	t := b.text(p)
@@ -185,6 +186,8 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	l := textSystem().Shape(params)
 	if inBlock {
 		l = collapsed(l, block)
+	} else if gap > 0 {
+		l = lowered(l, gap)
 	}
 	if pr.layout == nil {
 		a.laid++
@@ -194,7 +197,7 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	} else {
 		a.hs.add(p, float64(l.Height), -1)
 	}
-	pr.layout, pr.compose, pr.spans, pr.block, pr.h, pr.known = l, compose, spans, block, l.Height, true
+	pr.layout, pr.compose, pr.spans, pr.block, pr.gap, pr.h, pr.known = l, compose, spans, block, gap, l.Height, true
 	return l
 }
 
@@ -209,6 +212,24 @@ func collapsed(l *text.Layout, h float32) *text.Layout {
 	}
 	c.Lines[0].Height, c.Lines[0].Ascent = h, h
 	c.Height = h
+	return &c
+}
+
+// lowered returns a copy of l with gap of room above its first line, its
+// lines and glyphs moved down by it, as a paragraph with a TextGap shows.
+func lowered(l *text.Layout, gap float32) *text.Layout {
+	c := *l
+	c.Lines = slices.Clone(l.Lines)
+	for i := range c.Lines {
+		line := &c.Lines[i]
+		line.Y += gap
+		line.Baseline += gap
+		line.Glyphs = slices.Clone(line.Glyphs)
+		for k := range line.Glyphs {
+			line.Glyphs[k].Y += gap
+		}
+	}
+	c.Height += gap
 	return &c
 }
 

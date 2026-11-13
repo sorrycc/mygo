@@ -89,7 +89,7 @@ func bufferInputBase(c *context, value *TextBuffer, multiline bool) *node {
 	}
 	e.textClient = ed.client
 	ed.rebuild()
-	ed.ranges, ed.blocks, ed.blockFn = ed.ranges[:0], ed.blocks[:0], nil
+	ed.ranges, ed.blocks, ed.blockFn, ed.gaps = ed.ranges[:0], ed.blocks[:0], nil, ed.gaps[:0]
 	e.onValueInput(bufferInput)
 
 	return e

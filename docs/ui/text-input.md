@@ -140,6 +140,14 @@ area.TrackLines(&lines).TextBlocks(ui.TextBlock{First: 4, Last: 9, Height: h}).
 x, y, h, ok := lines.Caret(at)
 ```
 
+`TextGaps` puts room above a paragraph, its text below it, as a document
+leaves above a heading. The room is the paragraph's and stays wherever the
+caret is, so a line keeps its place as the caret comes to it:
+
+```go
+area.TextGaps(ui.TextGap{Para: 12, Height: size * 0.8})
+```
+
 A text area is at least a few lines high and grows with its text; given a
 height, it scrolls within it, with the wheel and a scroll bar, and keeps
 the caret in view as it moves. `Lines(min, max)` makes it as high as its
