@@ -3644,6 +3644,20 @@ func (_handle Element) Draw(fn func(p *Painter, r Rect)) Element {
 	return wrapElement(_node.Draw(fn))
 }
 
+// DrawBlocks paints the TextBlocks of a text area that show with p, after
+// the text before them: fn gets each and its box, in window DIPs, as wide
+// as the area's content. fn only paints: it may run more than once a
+// frame.
+func (_handle Element) DrawBlocks(fn func(p *Painter, b TextBlock, r Rect)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.DrawBlocks(fn))
+}
+
 // DrawObjects paints the inline objects of a text (Span.ObjectWidth)
 // with p, after its glyphs: fn gets each one that shows, its rune in
 // the text, the text elements' inside it included, and its box, in
@@ -5603,6 +5617,19 @@ func (_handle Element) TextBackground(c Color) Element {
 	return wrapElement(_node.TextBackground(c))
 }
 
+// TextBlocks shows runs of a text area's paragraphs as boxes, in the
+// frames that call it. Blocks given later that overlap one given before
+// are left out.
+func (_handle Element) TextBlocks(blocks ...TextBlock) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TextBlocks(blocks...))
+}
+
 // TextCaret has the element take text from the system's input methods
 // while it has the keyboard focus, with their composition at r, the caret,
 // relative to the element's box: candidate windows show there. Its
@@ -5630,11 +5657,12 @@ func (_handle Element) TextColor(c Color) Element {
 
 // TextRanges styles runs of a text input's text, in the frames that call
 // it. Ranges may overlap and nest, as the attributes of an attributed
-// string do: where they do, each of Color and Weight is that of the last
-// range given that sets it, across the calls of the frame. They follow the
-// text as it is: an app that finds them in the text finds them again as it
-// changes. A password shows none; an input method's composition shows
-// unstyled between them.
+// string do: where they do, each attribute is that of the last range
+// given that sets it, across the calls of the frame, the font's size from
+// one and its italics from another. They follow the text as it is: an
+// app that finds them in the text finds them again as it changes. A
+// password shows none; an input method's composition shows unstyled
+// between them.
 func (_handle Element) TextRanges(ranges ...TextRange) Element {
 	_node := _handle.node()
 	if _node == nil {

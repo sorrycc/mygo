@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -101,7 +102,7 @@ func (a *area) edited(b *buffer, first int, old []paragraph, after int) {
 		a.version = b.version
 		if len(old) == after {
 			for k, o := range old {
-				if o.h > 0 {
+				if o.known {
 					a.hs.add(first+k, -float64(o.h), 1)
 				}
 			}
@@ -123,7 +124,7 @@ func (a *area) edited(b *buffer, first int, old []paragraph, after int) {
 func (a *area) sync(b *buffer, params text.Params) {
 	if params != a.params {
 		for i := range b.paras {
-			b.paras[i].layout, b.paras[i].h = nil, 0
+			b.paras[i].layout, b.paras[i].h, b.paras[i].known = nil, 0, false
 		}
 		a.laid = 0
 		a.params = params
@@ -157,8 +158,16 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	if ed.compose != "" && p == b.para(ed.caret) {
 		compose = ed.compose
 	}
-	spans := ed.rangeKey(b.start(p), b.end(p))
-	if pr.layout != nil && pr.compose == compose && pr.spans == spans {
+	block, inBlock := ed.blockHeight(p)
+	var spans string
+	if inBlock {
+		// Its text takes no room, the box of the block all there is.
+		n := b.end(p) - b.start(p) + utf8.RuneCountInString(compose)
+		spans = text.EncodeSpans([]text.Span{{End: n, ObjectWidth: hiddenWidth}})
+	} else {
+		spans, block = ed.rangeKey(b.start(p), b.end(p)), -1
+	}
+	if pr.layout != nil && pr.compose == compose && pr.spans == spans && pr.block == block {
 		return pr.layout
 	}
 	t := b.text(p)
@@ -174,16 +183,33 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	}
 	params.Text, params.Spans = t, spans
 	l := textSystem().Shape(params)
+	if inBlock {
+		l = collapsed(l, block)
+	}
 	if pr.layout == nil {
 		a.laid++
 	}
-	if pr.h > 0 {
+	if pr.known {
 		a.hs.add(p, float64(l.Height-pr.h), 0)
 	} else {
 		a.hs.add(p, float64(l.Height), -1)
 	}
-	pr.layout, pr.compose, pr.spans, pr.h = l, compose, spans, l.Height
+	pr.layout, pr.compose, pr.spans, pr.block, pr.h, pr.known = l, compose, spans, block, l.Height, true
 	return l
+}
+
+// collapsed returns a copy of l whose lines take no room but the first,
+// h high, as a paragraph of a TextBlock shows.
+func collapsed(l *text.Layout, h float32) *text.Layout {
+	c := *l
+	c.Lines = slices.Clone(l.Lines)
+	for i := range c.Lines {
+		line := &c.Lines[i]
+		line.Y, line.Height, line.Baseline, line.Ascent, line.Descent = 0, 0, 0, 0, 0
+	}
+	c.Lines[0].Height, c.Lines[0].Ascent = h, h
+	c.Height = h
+	return &c
 }
 
 // local returns where rune i of paragraph p is in its layout, which holds
@@ -409,6 +435,18 @@ func (a *area) paint(e *node, p *Painter, ox, oy float32) {
 			}
 		}
 		p.textForeground(l, ox, y, ts.color, ts, sp)
+		if e.objectFn != nil && paintObjects != nil {
+			paintObjects(p, l, ox, y, func(p *Painter, at int, r Rect) {
+				if r.W > hiddenWidth {
+					e.objectFn(p, a.global(ed, i, at), r)
+				}
+			})
+		}
+		if ed.blockFn != nil {
+			if k, ok := ed.blockAt(i); ok && ed.blocks[k].First == i {
+				ed.blockFn(p, ed.blocks[k], Rect{ox, y, ed.contentW, l.Height})
+			}
+		}
 		if ed.compose != "" && b.para(ed.caret) == i {
 			c := ed.caret - start
 			for _, r := range l.Selection(c, c+utf8.RuneCountInString(ed.compose)) {

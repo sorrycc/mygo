@@ -215,18 +215,18 @@ func (e *node) paintInput(p *Painter) {
 }
 
 // rangeSpans returns the TextRanges in runes start up to end of the text,
-// from start: the spans of their weights for the layout ("" when none
-// sets one), and how to paint their colors (nil when none sets one). An
-// input method's composition at the caret, between start and end, sits
-// unstyled between the runs, and those after it move past it. What it
-// returns to paint is the editor's, good until the next call.
+// from start: the spans of how they lay out ("" when none changes it), and
+// how to paint them (nil when none changes it). An input method's
+// composition at the caret, between start and end, sits unstyled between
+// the runs, and those after it move past it. What it returns to paint is
+// the editor's, good until the next call.
 func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
 	return ed.spansOf(ed.inReach(start), start, end)
 }
 
-// rangeKey returns the spans of the weights of the TextRanges in runes
-// start up to end, as rangeSpans does, without how to paint them: a
-// layout needs no more, and a text without weights costs nothing.
+// rangeKey returns the spans of how the TextRanges in runes start up to
+// end lay out, as rangeSpans does, without how to paint them: a layout
+// needs no more, and a text only colored costs nothing.
 func (ed *editor) rangeKey(start, end int) string {
 	key, _ := ed.styleRanges(ed.inReach(start), start, end, false)
 	return key
@@ -254,19 +254,20 @@ func (ed *editor) spansOf(ranges []TextRange, start, end int) (string, *spanPain
 }
 
 // styleRanges is spansOf, building how to paint the ranges only if paint
-// is set. Without it, it builds nothing unless a range sets a weight.
+// is set. Without it, it builds nothing unless a range changes the layout.
 func (ed *editor) styleRanges(ranges []TextRange, start, end int, paint bool) (string, *spanPaint) {
 	reach := len(ranges)
 	if !paint {
-		weighted := false
-		for i, r := range ranges {
+		shaped := false
+		for i := range ranges {
+			r := &ranges[i]
 			if r.Start >= end {
 				reach = i
 				break
 			}
-			weighted = weighted || r.Weight > 0 && max(r.Start, start) < min(r.End, end)
+			shaped = shaped || r.shapes() && max(r.Start, start) < min(r.End, end)
 		}
-		if !weighted {
+		if !shaped {
 			return "", nil
 		}
 	}
@@ -293,21 +294,23 @@ func (ed *editor) styleRanges(ranges []TextRange, start, end int, paint bool) (s
 		styles = make([]text.Span, 0, 2*reach+1)
 	}
 	at := 0
-	add := func(from, to int, r TextRange) {
+	add := func(from, to int, r *TextRange) {
 		if from > at {
 			styles = append(styles, text.Span{End: from})
 			if paint {
 				spans = append(spans, Span{})
 			}
 		}
-		styles = append(styles, text.Span{End: to, Weight: r.Weight})
+		styles = append(styles, r.span(to))
 		if paint {
-			spans = append(spans, Span{Color: r.Color, Weight: r.Weight})
+			spans = append(spans, Span{Color: r.Color, Weight: r.Weight, Underline: r.Underline, Strikethrough: r.Strikethrough,
+				DecorationColor: r.DecorationColor, Background: r.Background, Radius: r.Radius})
 		}
 		at = to
 	}
-	weighted, colored := false, false
-	for _, r := range ranges[:reach] {
+	shaped, painted := false, false
+	for i := range ranges[:reach] {
+		r := &ranges[i]
 		if r.Start >= end {
 			break
 		}
@@ -321,17 +324,17 @@ func (ed *editor) styleRanges(ranges []TextRange, start, end int, paint bool) (s
 		} else {
 			add(local(from, true), local(to, false), r)
 		}
-		weighted = weighted || r.Weight > 0
-		colored = colored || r.Color.A > 0
+		shaped = shaped || r.shapes()
+		painted = painted || r.paints()
 	}
 	key := ""
-	if weighted {
+	if shaped {
 		key = text.EncodeSpans(styles)
 	}
 	var sp *spanPaint
 	if paint {
 		ed.paintStyles, ed.paintSpans = styles, spans
-		if colored {
+		if painted {
 			ed.painted = spanPaint{spans: spans, styles: styles}
 			sp = &ed.painted
 		}

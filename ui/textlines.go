@@ -96,3 +96,18 @@ func (l *TextLines) lineHeight() float32 {
 	}
 	return l.ed.lineHeight()
 }
+
+// Caret returns where the caret before rune i of the text stands, in the
+// area's content as Top measures it, and how high it is, as the area lays
+// the text out: in a text of mixed fonts, where a block cursor or a mark
+// goes. It lays the line out if the area has not; ok is false before the
+// area was first laid out.
+func (l *TextLines) Caret(i int) (x, y, h float32, ok bool) {
+	a := l.area()
+	if a == nil {
+		return 0, 0, 0, false
+	}
+	i = max(0, min(i, l.ed.buf.n))
+	cx, cy, ch := a.caretAt(l.ed, i, 0)
+	return cx, float32(cy), ch, true
+}

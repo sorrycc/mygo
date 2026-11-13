@@ -258,7 +258,7 @@ func TestHeights(t *testing.T) {
 	paras := make([]paragraph, 300)
 	for i := range paras {
 		if rng.IntN(3) > 0 {
-			paras[i].h = float32(10 + rng.IntN(40))
+			paras[i].h, paras[i].known = float32(10+rng.IntN(40)), true
 		}
 	}
 	var h heights
@@ -267,7 +267,7 @@ func TestHeights(t *testing.T) {
 	naiveTop := func(p int) float64 {
 		var y float64
 		for _, q := range paras[:p] {
-			if q.h > 0 {
+			if q.known {
 				y += float64(q.h)
 			} else {
 				y += h.est
@@ -277,12 +277,13 @@ func TestHeights(t *testing.T) {
 	}
 	for range 200 {
 		p := rng.IntN(len(paras))
-		if paras[p].h > 0 {
-			nh := float32(10 + rng.IntN(40))
+		// A height may be 0, as a paragraph of a TextBlock's is.
+		if paras[p].known {
+			nh := float32(rng.IntN(40))
 			h.add(p, float64(nh-paras[p].h), 0)
 			paras[p].h = nh
 		} else {
-			paras[p].h = float32(10 + rng.IntN(40))
+			paras[p].h, paras[p].known = float32(rng.IntN(40)), true
 			h.add(p, float64(paras[p].h), -1)
 		}
 		for q := 0; q <= len(paras); q++ {

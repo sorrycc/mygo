@@ -76,6 +76,10 @@ type editor struct {
 	ranges []TextRange
 	apart  bool
 	merge  rangeMerge
+	// blocks show runs of a text area's paragraphs as boxes (TextBlocks),
+	// sorted and apart, which blockFn paints (DrawBlocks).
+	blocks  []TextBlock
+	blockFn func(p *Painter, b TextBlock, r Rect)
 	// paintStyles, paintSpans and painted hold what rangeSpans returns to
 	// paint a text, used again for the next: painting keeps none.
 	paintStyles []text.Span

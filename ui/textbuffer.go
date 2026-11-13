@@ -78,7 +78,13 @@ type paragraph struct {
 	// spans are the weights of the TextRanges in the paragraph, as its
 	// layout took them.
 	spans string
+	// block is the height of the TextBlock the paragraph is of as its
+	// layout took it, -1 for none.
+	block float32
+	// h is the paragraph's height as it was laid out last, once known is
+	// set: a paragraph of a TextBlock may be 0 high.
 	h     float32
+	known bool
 }
 
 func (b *buffer) set(s string) {
@@ -476,7 +482,7 @@ func (h *heights) reset(paras []paragraph) {
 	h.unknown = slices.Grow(h.unknown[:0], n+1)[:n+1]
 	h.measured[0], h.unknown[0] = 0, 0
 	for i, p := range paras {
-		if p.h > 0 {
+		if p.known {
 			h.measured[i+1], h.unknown[i+1] = float64(p.h), 0
 		} else {
 			h.measured[i+1], h.unknown[i+1] = 0, 1

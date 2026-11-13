@@ -2,7 +2,9 @@ package ui
 
 import (
 	"slices"
+	"sort"
 
+	"github.com/egoist/mygo/internal/text"
 	transfer "github.com/egoist/mygo/transfer"
 )
 
@@ -56,7 +58,7 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 		ed.compose = ""
 	}
 	ed.rebuild()
-	ed.ranges = ed.ranges[:0]
+	ed.ranges, ed.blocks, ed.blockFn = ed.ranges[:0], ed.blocks[:0], nil
 	e.onValueInput(stringInput)
 
 	return e
@@ -322,20 +324,72 @@ func (e *node) Unselectable() *node {
 
 // TextRange styles runes Start up to End of a text input's text: their
 // color, when its alpha is not zero, and their weight, when Weight is set,
-// as a message field shows the mentions in what is typed.
+// as a message field shows the mentions in what is typed. A text area
+// takes the rest too, as a live preview of Markdown styles its source.
 type TextRange struct {
 	Start, End int
 	Color      Color
 	Weight     int
+	// Family, Size and Italic set the runes' font: a family, as for
+	// Element.Font, and a size in DIPs. A line of larger runes grows to
+	// hold them.
+	Family string
+	Size   float32
+	Italic bool
+	// Underline and Strikethrough draw lines under and through the runes,
+	// in DecorationColor when it is set, else in their color.
+	Underline, Strikethrough bool
+	DecorationColor          Color
+	// Background fills behind the runes: the line's height, or hugging
+	// their glyphs with corners of Radius when it is set, as code within
+	// text shows.
+	Background Color
+	Radius     float32
+	// Hidden hides the runes: they take no room and draw nothing, while the
+	// caret and the selection still go over them, as the marks of Markdown
+	// a live preview hides.
+	Hidden bool
+	// ObjectWidth, ObjectHeight and ObjectDescent, when ObjectWidth is set,
+	// make each rune an inline object, as Span's do: a box that wide,
+	// standing that high on the baseline and that deep below it, which
+	// DrawObjects paints.
+	ObjectWidth, ObjectHeight, ObjectDescent float32
+}
+
+// hiddenWidth is the advance of a Hidden rune: an object, which draws no
+// glyph, too narrow to see.
+const hiddenWidth = 1.0 / 4096
+
+// shapes reports whether the range changes how its runes lay out.
+func (r *TextRange) shapes() bool {
+	return r.Weight != 0 || r.Family != "" || r.Size > 0 || r.Italic || r.Hidden || r.ObjectWidth > 0
+}
+
+// paints reports whether the range changes how its runes paint.
+func (r *TextRange) paints() bool {
+	return r.Color.A > 0 || r.Underline || r.Strikethrough || r.Background.A > 0
+}
+
+// span is how the range lays its runes out, up to end.
+func (r *TextRange) span(end int) text.Span {
+	sp := text.Span{End: end, Family: r.Family, Size: r.Size, Weight: r.Weight, Italic: r.Italic}
+	switch {
+	case r.Hidden:
+		sp.ObjectWidth = hiddenWidth
+	case r.ObjectWidth > 0:
+		sp.ObjectWidth, sp.ObjectHeight, sp.ObjectDescent = r.ObjectWidth, r.ObjectHeight, r.ObjectDescent
+	}
+	return sp
 }
 
 // TextRanges styles runs of a text input's text, in the frames that call
 // it. Ranges may overlap and nest, as the attributes of an attributed
-// string do: where they do, each of Color and Weight is that of the last
-// range given that sets it, across the calls of the frame. They follow the
-// text as it is: an app that finds them in the text finds them again as it
-// changes. A password shows none; an input method's composition shows
-// unstyled between them.
+// string do: where they do, each attribute is that of the last range
+// given that sets it, across the calls of the frame, the font's size from
+// one and its italics from another. They follow the text as it is: an
+// app that finds them in the text finds them again as it changes. A
+// password shows none; an input method's composition shows unstyled
+// between them.
 func (e *node) TextRanges(ranges ...TextRange) *node {
 	ed := e.st.editor
 	if ed == nil || e.flags&flagEditable == 0 {
@@ -350,20 +404,166 @@ func (e *node) TextRanges(ranges ...TextRange) *node {
 	return e
 }
 
+// TextBlock shows paragraphs First to Last of a text area, its lines, as
+// one box Height high in place of their text, which DrawBlocks paints, as
+// a live preview of Markdown shows a table it renders. Their text takes no
+// room, while the caret and the selection still go over it. A Height of 0
+// collapses them.
+type TextBlock struct {
+	First, Last int
+	Height      float32
+}
+
+// TextBlocks shows runs of a text area's paragraphs as boxes, in the
+// frames that call it. Blocks given later that overlap one given before
+// are left out.
+func (e *node) TextBlocks(blocks ...TextBlock) *node {
+	ed := e.st.editor
+	if ed == nil || ed.area == nil {
+		return e
+	}
+	for _, b := range blocks {
+		if b.Last < b.First || b.First < 0 {
+			continue
+		}
+		k := sort.Search(len(ed.blocks), func(i int) bool { return ed.blocks[i].First > b.Last })
+		if k > 0 && ed.blocks[k-1].Last >= b.First {
+			continue
+		}
+		ed.blocks = slices.Insert(ed.blocks, k, b)
+	}
+	return e
+}
+
+// DrawBlocks paints the TextBlocks of a text area that show with p, after
+// the text before them: fn gets each and its box, in window DIPs, as wide
+// as the area's content. fn only paints: it may run more than once a
+// frame.
+func (e *node) DrawBlocks(fn func(p *Painter, b TextBlock, r Rect)) *node {
+	if ed := e.st.editor; ed != nil {
+		ed.blockFn = fn
+	}
+	return e
+}
+
+// blockAt returns the TextBlock holding paragraph p.
+func (ed *editor) blockAt(p int) (int, bool) {
+	k := sort.Search(len(ed.blocks), func(i int) bool { return ed.blocks[i].Last >= p })
+	if k < len(ed.blocks) && ed.blocks[k].First <= p {
+		return k, true
+	}
+	return 0, false
+}
+
+// blockHeight returns how high paragraph p shows as of a TextBlock: the
+// block's height for its first, 0 for the others.
+func (ed *editor) blockHeight(p int) (float32, bool) {
+	k, ok := ed.blockAt(p)
+	if !ok {
+		return 0, false
+	}
+	if ed.blocks[k].First == p {
+		return max(ed.blocks[k].Height, 0), true
+	}
+	return 0, true
+}
+
+// rangeAttr is an attribute of a TextRange that the last range setting it
+// gives, where ranges overlap.
+type rangeAttr int
+
+const (
+	attrColor rangeAttr = iota
+	attrWeight
+	attrFamily
+	attrSize
+	attrItalic
+	attrUnderline
+	attrStrike
+	attrDecoration
+	attrBackground
+	attrHidden
+	attrObject
+	rangeAttrs
+)
+
+// sets reports whether r sets attribute a.
+func (r *TextRange) sets(a rangeAttr) bool {
+	switch a {
+	case attrColor:
+		return r.Color.A > 0
+	case attrWeight:
+		return r.Weight != 0
+	case attrFamily:
+		return r.Family != ""
+	case attrSize:
+		return r.Size > 0
+	case attrItalic:
+		return r.Italic
+	case attrUnderline:
+		return r.Underline
+	case attrStrike:
+		return r.Strikethrough
+	case attrDecoration:
+		return r.DecorationColor.A > 0
+	case attrBackground:
+		return r.Background.A > 0
+	case attrHidden:
+		return r.Hidden
+	case attrObject:
+		return r.ObjectWidth > 0
+	}
+	return false
+}
+
+// take sets attribute a of r to that of from.
+func (r *TextRange) take(a rangeAttr, from *TextRange) {
+	switch a {
+	case attrColor:
+		r.Color = from.Color
+	case attrWeight:
+		r.Weight = from.Weight
+	case attrFamily:
+		r.Family = from.Family
+	case attrSize:
+		r.Size = from.Size
+	case attrItalic:
+		r.Italic = true
+	case attrUnderline:
+		r.Underline = true
+	case attrStrike:
+		r.Strikethrough = true
+	case attrDecoration:
+		r.DecorationColor = from.DecorationColor
+	case attrBackground:
+		r.Background, r.Radius = from.Background, from.Radius
+	case attrHidden:
+		r.Hidden = true
+	case attrObject:
+		r.ObjectWidth, r.ObjectHeight, r.ObjectDescent = from.ObjectWidth, from.ObjectHeight, from.ObjectDescent
+	}
+}
+
+// sameStyle reports whether a and b style their runes alike.
+func sameStyle(a, b TextRange) bool {
+	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
+	return a == b
+}
+
 // rangeMerge is what sortRanges reuses from frame to frame.
 type rangeMerge struct {
 	given          []TextRange
 	points, starts []int
-	all, colors    rangeHeap
-	weights        rangeHeap
+	all            rangeHeap
+	attrs          [rangeAttrs]rangeHeap
 }
 
 // sortRanges splits the ranges into runs apart, sorted by start, where
-// each of Color and Weight is that of the last range given setting it, as
+// each attribute is that of the last range given setting it, as
 // TextRanges says, once the frame has given them all: a frame calling
 // TextRanges for each range merges them once. It takes O(n log n) for n
 // ranges: a sweep over their ends, with the ranges covering it on heaps
-// by the order they were given in.
+// by the order they were given in, one for each attribute.
 func (ed *editor) sortRanges() {
 	m := &ed.merge
 	given := append(m.given[:0], ed.ranges...)
@@ -375,31 +575,32 @@ func (ed *editor) sortRanges() {
 	slices.Sort(points)
 	points = slices.Compact(points)
 	slices.SortFunc(starts, func(a, b int) int { return given[a].Start - given[b].Start })
-	m.all, m.colors, m.weights = m.all[:0], m.colors[:0], m.weights[:0]
+	m.all = m.all[:0]
+	for a := range m.attrs {
+		m.attrs[a] = m.attrs[a][:0]
+	}
 	out, next := ed.ranges[:0], 0
 	for k := 0; k+1 < len(points); k++ {
 		from, to := points[k], points[k+1]
 		for ; next < len(starts) && given[starts[next]].Start <= from; next++ {
 			i := starts[next]
 			m.all.push(i)
-			if given[i].Color.A > 0 {
-				m.colors.push(i)
-			}
-			if given[i].Weight != 0 {
-				m.weights.push(i)
+			for a := range rangeAttrs {
+				if given[i].sets(a) {
+					m.attrs[a].push(i)
+				}
 			}
 		}
 		if _, ok := m.all.top(given, from); !ok {
 			continue // between ranges
 		}
 		r := TextRange{Start: from, End: to}
-		if i, ok := m.colors.top(given, from); ok {
-			r.Color = given[i].Color
+		for a := range rangeAttrs {
+			if i, ok := m.attrs[a].top(given, from); ok {
+				r.take(a, &given[i])
+			}
 		}
-		if i, ok := m.weights.top(given, from); ok {
-			r.Weight = given[i].Weight
-		}
-		if n := len(out); n > 0 && out[n-1].End == from && out[n-1].Color == r.Color && out[n-1].Weight == r.Weight {
+		if n := len(out); n > 0 && out[n-1].End == from && sameStyle(out[n-1], r) {
 			out[n-1].End = to // a run as one, as an attributed string's
 			continue
 		}

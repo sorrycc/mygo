@@ -111,6 +111,35 @@ in.TextRanges(
 A password shows none. While an input method composes, its text sits
 unstyled at the caret and the ranges keep their style around it.
 
+A text area takes the rest of a range's attributes too, as a live preview of
+Markdown styles its source: `Family`, `Size` and `Italic` set the font, and a
+line of larger runes grows to hold them; `Underline`, `Strikethrough` and
+`DecorationColor` draw lines; `Background` fills behind the runes, hugging
+their glyphs with round corners when `Radius` is set. `Hidden` hides runes,
+which take no room while the caret and the selection still go over them,
+and `ObjectWidth`, `ObjectHeight` and `ObjectDescent` make each rune an
+inline object, a box that `DrawObjects` paints, as a task's box or a picture:
+
+```go
+area.TextRanges(
+	ui.TextRange{Start: 0, End: 2, Hidden: true},           // "# "
+	ui.TextRange{Start: 0, End: 7, Size: 28, Weight: 700},   // "# Title"
+	ui.TextRange{Start: 10, End: 11, ObjectWidth: 16, ObjectHeight: 14},
+).DrawObjects(func(p *ui.Painter, at int, r ui.Rect) { p.Stroke(r, t.Border, 3, 1) })
+```
+
+`TextBlocks` shows a run of a text area's paragraphs as one box of a height
+in place of their text, which `DrawBlocks` paints, or which the app covers
+with elements of its own, as a rendered table; the caret and the selection
+still go over the text, which takes no room. `TextLines.Caret` says where the
+caret before a rune stands in text of mixed fonts:
+
+```go
+area.TrackLines(&lines).TextBlocks(ui.TextBlock{First: 4, Last: 9, Height: h}).
+	DrawBlocks(func(p *ui.Painter, b ui.TextBlock, r ui.Rect) { p.Fill(r, t.Surface, 6) })
+x, y, h, ok := lines.Caret(at)
+```
+
 A text area is at least a few lines high and grows with its text; given a
 height, it scrolls within it, with the wheel and a scroll bar, and keeps
 the caret in view as it moves. `Lines(min, max)` makes it as high as its
