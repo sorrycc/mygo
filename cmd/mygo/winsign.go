@@ -24,6 +24,12 @@ type Windows struct {
 	// and the files that name or slug names keep their names, so that an
 	// app named "weather" shows as "天气助手" (default: name).
 	DisplayName string `json:"displayName"`
+	// ContextMenu is the label of an item the installer adds to Explorer's
+	// right-click menu of files, of folders and of a folder's background,
+	// which opens them with the app, e.g. "Open with MyApp". The app gets
+	// a file's or a folder's path as its argument. Windows 11 shows the
+	// item under "Show more options". Without it, there is no item.
+	ContextMenu string `json:"contextMenu"`
 	// Certificate is a code signing certificate (.pfx) to sign the
 	// executable, the installer and its uninstaller with, which keeps
 	// SmartScreen from warning users; signing the uninstaller needs NSIS

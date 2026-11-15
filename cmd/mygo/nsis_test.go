@@ -37,6 +37,35 @@ func TestNSISUninstallEntry(t *testing.T) {
 	}
 }
 
+// TestNSISContextMenu checks the Explorer context menu items that
+// windows.contextMenu adds, and that the uninstaller removes them.
+func TestNSISContextMenu(t *testing.T) {
+	c := &Config{Name: "My App", Identifier: "com.example.app"}
+	if register, _ := nsisAssociations(c, "My App.exe"); strings.Contains(register, `\shell\com.example.app`) {
+		t.Errorf("items without windows.contextMenu:\n%s", register)
+	}
+	c.Windows.ContextMenu = "Open with My App"
+	register, unregister := nsisAssociations(c, "My App.exe")
+	for _, menu := range []struct{ class, arg string }{{`*`, `%1`}, {`Directory`, `%1`}, {`Directory\Background`, `%V`}} {
+		key := `"Software\Classes\` + menu.class + `\shell\com.example.app`
+		for _, line := range []string{
+			`  WriteRegStr HKCU ` + key + `" "" "Open with My App"` + "\n",
+			`  WriteRegStr HKCU ` + key + `" "Icon" "$INSTDIR\My App.exe,0"` + "\n",
+			`  WriteRegStr HKCU ` + key + `\command" "" '"$INSTDIR\My App.exe" "` + menu.arg + `"'` + "\n",
+		} {
+			if !strings.Contains(register, line) {
+				t.Errorf("the installer has no %q:\n%s", line, register)
+			}
+		}
+		if line := `  DeleteRegKey HKCU ` + key + `"` + "\n"; !strings.Contains(unregister, line) {
+			t.Errorf("the uninstaller has no %q:\n%s", line, unregister)
+		}
+	}
+	if !strings.Contains(register, "SHChangeNotify") || !strings.Contains(unregister, "SHChangeNotify") {
+		t.Error("Explorer is not told of the items")
+	}
+}
+
 func TestConfigPublisher(t *testing.T) {
 	for copyright, want := range map[string]string{
 		"":                          "",

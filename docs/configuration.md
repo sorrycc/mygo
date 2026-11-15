@@ -130,6 +130,7 @@ See [macOS](distribution.md#macos).
 | Field | Default | |
 |---|---|---|
 | `displayName` | `name` | the name Windows shows the app by: its Start menu and desktop shortcuts, its entry in Settings > Apps, the installer's title and messages, and the product name in the executable's file properties. The executable, its install folder and the files named after `name` or `slug` keep their names, e.g. `天气助手` for an app named `weather`, whose executable stays `weather.exe` |
+| `contextMenu` | | the label of an item the installer adds to Explorer's right-click menu of files, folders and a folder's background, e.g. `Open with My App`, which starts the app with the file's or the folder's path; Windows 11 shows it under Show more options, and the uninstaller removes it. Apps that add or remove the item themselves write the keys under `HKCU\Software\Classes\*\shell\`, `Directory\shell\` and `Directory\Background\shell\`, named the `identifier`'s ASCII letters, digits and dots |
 | `certificate` | | a code signing certificate (`.pfx`) for the executable, the unsigned executables and libraries among the resources, and the installer; its password comes from `MYGO_WINDOWS_CERTIFICATE_PASSWORD` |
 | `signCommand` | | instead of `certificate`, a command that signs a file, with `%1` for its path |
 | `timestampUrl` | `http://timestamp.digicert.com` | the time stamping server of `certificate` |

@@ -249,6 +249,11 @@ export interface WindowsConfig {
    * the name's, e.g. `天气助手` for an app named `weather`.
    */
   displayName?: string;
+  /**
+   * The label of an item the installer adds to Explorer's right-click menu
+   * of files, folders and a folder's background, e.g. `Open with My App`.
+   */
+  contextMenu?: string;
   /** A code signing certificate (.pfx); its password comes from `MYGO_WINDOWS_CERTIFICATE_PASSWORD`. */
   certificate?: string;
   /** Instead of `certificate`, a command that signs a file, with `%1` for its path. */

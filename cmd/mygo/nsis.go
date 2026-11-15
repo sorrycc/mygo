@@ -455,9 +455,18 @@ func nsisVersion(tool string) (major, minor int) {
 	return major, minor
 }
 
+// nsisContextMenus are the classes whose right-click menu in Explorer
+// windows.contextMenu adds an item to, with the argument each passes the
+// app: a file's or a folder's path, or the folder whose background it is.
+var nsisContextMenus = []struct{ class, arg string }{
+	{`*`, `%1`},
+	{`Directory`, `%1`},
+	{`Directory\Background`, `%V`},
+}
+
 // nsisAssociations returns the installer commands that register, and
-// unregister, the file associations and URL schemes of the app for the
-// user, opening them with exe.
+// unregister, the file associations, URL schemes and Explorer context menu
+// items of the app for the user, opening them with exe.
 func nsisAssociations(c *Config, exe string) (register, unregister string) {
 	var r, u strings.Builder
 	open := `'"$INSTDIR\` + nsisEscape(exe) + `" "%1"'`
@@ -477,6 +486,16 @@ func nsisAssociations(c *Config, exe string) (register, unregister string) {
 			fmt.Fprintf(&r, "  WriteRegStr HKCU %s %s \"\"\n", nsisString(`Software\Classes\.`+ext+`\OpenWithProgids`), nsisString(progID))
 			fmt.Fprintf(&u, "  DeleteRegKey HKCU %s\n", nsisString(class))
 			fmt.Fprintf(&u, "  DeleteRegValue HKCU %s %s\n", nsisString(`Software\Classes\.`+ext+`\OpenWithProgids`), nsisString(progID))
+		}
+	}
+	if label := strings.TrimSpace(c.Windows.ContextMenu); label != "" {
+		icon := `"$INSTDIR\` + nsisEscape(exe) + `,0"`
+		for _, menu := range nsisContextMenus {
+			key := `Software\Classes\` + menu.class + `\shell\` + prefix
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" %s\n", nsisString(key), nsisString(label))
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"Icon\" %s\n", nsisString(key), icon)
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" %s\n", nsisString(key+`\command`), `'"$INSTDIR\`+nsisEscape(exe)+`" "`+menu.arg+`"'`)
+			fmt.Fprintf(&u, "  DeleteRegKey HKCU %s\n", nsisString(key))
 		}
 	}
 	for _, scheme := range c.URLSchemes {
