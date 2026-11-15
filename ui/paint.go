@@ -1082,6 +1082,18 @@ func (p *Painter) scrollbars(e *node) {
 		w, h = d.contentW, d.contentH
 		x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
+	} else if now := rt.c.now; now.Before(st.heldUntil) {
+		// Scrolled by the wheel or a touchpad, as dragged, where the
+		// content overflowed then and does now.
+		if st.heldW > float64(e.w) && w > float64(e.w) {
+			w = st.heldW
+			x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
+		}
+		if st.heldH > float64(e.h) && h > float64(e.h) {
+			h = st.heldH
+			y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
+		}
+		p.After(st.heldUntil.Sub(now))
 	}
 	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth(), e.rtl())
 	if g.vertical {

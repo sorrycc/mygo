@@ -88,6 +88,14 @@ type paragraph struct {
 	// set: a paragraph of a TextBlock may be 0 high.
 	h     float32
 	known bool
+	// guess is the height a text area estimated of the paragraph before
+	// laying it out, from its columns, once guessed is set.
+	guess   float32
+	guessed bool
+	// cols is how many columns the paragraph takes unwrapped, once
+	// counted is set (columns).
+	cols    int32
+	counted bool
 }
 
 func (b *buffer) set(s string) {
@@ -463,13 +471,79 @@ func (g *graphemes) prev(b *buffer, i int) int {
 	return start + g.b.PrevGrapheme(i-start)
 }
 
+// columns returns how many columns paragraph p takes unwrapped, each as
+// wide as a narrow letter, counting them once: a rune of three bytes or
+// more, as an ideograph or an emoji, takes two, one of two bytes one and a
+// half, as a letter with an accent takes one and a Cyrillic or Greek one a
+// little more.
+func (b *buffer) columns(p int) int {
+	pr := &b.paras[p]
+	if !pr.counted {
+		t := b.text(p)
+		pr.cols, pr.counted = int32(columnsOf(countRunes(t), len(t))), true
+	}
+	return int(pr.cols)
+}
+
+func columnsOf(runes, bytes int) int { return runes + (bytes-runes)/2 }
+
+// maxCounted is how long an indexed text is at most, in bytes, whose
+// paragraphs' columns countColumns counts in one pass over it.
+const maxCounted = 16 << 20
+
+// countColumns counts the columns of the paragraphs of an indexed buffer
+// not counted yet: those an edit made one by one, and those of a text
+// just loaded in one pass over it, unless it is too long to read for an
+// estimate, which leaves them not counted.
+func (b *buffer) countColumns() {
+	missing := 0
+	for i := range b.paras {
+		if !b.paras[i].counted {
+			missing++
+		}
+	}
+	switch {
+	case missing == 0:
+		return
+	case missing <= 64:
+		for i := range b.paras {
+			b.columns(i)
+		}
+		return
+	case b.byteLen() > maxCounted:
+		return
+	}
+	p, runes, bytes := 0, 0, 0
+	done := func() {
+		b.paras[p].cols, b.paras[p].counted = int32(columnsOf(runes, bytes)), true
+		p, runes, bytes = p+1, 0, 0
+	}
+	rope.Chunks(b.root, 0, b.byteLen(), func(s string) bool {
+		for i := 0; i < len(s); i++ {
+			switch c := s[i]; {
+			case c == '\n':
+				done()
+			case c&0xc0 != 0x80:
+				runes++
+				bytes++
+			default:
+				bytes++
+			}
+		}
+		return true
+	})
+	if p < len(b.paras) {
+		done()
+	}
+}
+
 // heights sums the heights of the paragraphs of a text area, measured as
-// they are laid out and estimated for the others, in two Fenwick trees:
-// the heights measured, and how many are not, which an estimate of their
-// height multiplies. The top of a paragraph, and the paragraph at a
-// height, take O(log n) for any estimate.
+// they are laid out and guessed from their columns before, in two Fenwick
+// trees: those heights, and how many paragraphs have neither, which an
+// estimate of their height multiplies. The top of a paragraph, and the
+// paragraph at a height, take O(log n) for any estimate.
 type heights struct {
-	measured []float64 // 1-based
+	measured []float64 // 1-based, the heights measured or guessed
 	unknown  []int32
 	est      float64
 }
@@ -485,9 +559,12 @@ func (h *heights) reset(paras []paragraph) {
 	h.unknown = slices.Grow(h.unknown[:0], n+1)[:n+1]
 	h.measured[0], h.unknown[0] = 0, 0
 	for i, p := range paras {
-		if p.known {
+		switch {
+		case p.known:
 			h.measured[i+1], h.unknown[i+1] = float64(p.h), 0
-		} else {
+		case p.guessed:
+			h.measured[i+1], h.unknown[i+1] = float64(p.guess), 0
+		default:
 			h.measured[i+1], h.unknown[i+1] = 0, 1
 		}
 	}

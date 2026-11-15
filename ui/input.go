@@ -510,6 +510,7 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 		}
 		if glide {
 			if wheelMoves(s, sx, sy) {
+				rt.holdBars(s)
 				rt.wheelScroll(s, sx, sy)
 				return
 			}
@@ -517,10 +518,28 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 		}
 		s.wheel = nil
 		if scrollBy(s, sx, sy) {
+			rt.holdBars(s)
 			rt.requestFrame()
 			return
 		}
 	}
+}
+
+// barsHold is how long the thumbs of a container keep their length after
+// the wheel or a touchpad scrolled it last: past the glide of a notch,
+// and between the events of a touchpad's fling.
+const barsHold = 400 * time.Millisecond
+
+// holdBars keeps the length of the thumbs of container s while the wheel
+// or a touchpad scrolls it, as a drag of one does: what it measures of
+// its content as it scrolls, as the heights of a text area's paragraphs
+// coming into view, moves them only once it stops.
+func (rt *engine) holdBars(s *state) {
+	now := rt.now()
+	if !now.Before(s.heldUntil) {
+		s.heldW, s.heldH = s.contentW, s.contentH
+	}
+	s.heldUntil = now.Add(barsHold)
 }
 
 // zoom gives a pinch to the element under the pointer that handles its

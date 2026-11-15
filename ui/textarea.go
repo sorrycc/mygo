@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -12,8 +13,10 @@ import (
 
 // area lays out and shows the text of a TextArea a paragraph at a time, as
 // a List does its rows: each paragraph keeps its layout until an edit
-// changes it, only those in view are laid out, and the heights of the
-// others are estimated (heights) until they are. Text laid out whole, as
+// changes it, those in view are laid out, and the heights of the others
+// are guessed from how wide they are (heights) until they are measured,
+// the rest of the text a few at a time while it shows (measureRest), so
+// that the scroll bar holds still. Text laid out whole, as
 // text elements and single-line inputs are, makes the same lines, since
 // the text system breaks lines a paragraph at a time too.
 //
@@ -28,6 +31,11 @@ type area struct {
 	params  text.Params
 	version uint64
 	line    text.Line
+	// col is how wide a column of a narrow letter is in the params' font,
+	// as a line of words averages it, by which paragraphs are guessed.
+	col float32
+	// next is the paragraph measureRest measures from.
+	next int
 
 	scroll     float64 // the content's y at the top of the view
 	anchor     int
@@ -102,13 +110,23 @@ func (a *area) edited(b *buffer, first int, old []paragraph, after int) {
 		a.version = b.version
 		if len(old) == after {
 			for k, o := range old {
-				if o.known {
+				switch {
+				case o.known:
 					a.hs.add(first+k, -float64(o.h), 1)
+				case o.guessed:
+					a.hs.add(first+k, -float64(o.guess), 1)
+				}
+				if a.col > 0 {
+					pr := &b.paras[first+k]
+					pr.guess, pr.guessed = a.guessHeight(b.columns(first+k)), true
+					a.hs.add(first+k, float64(pr.guess), -1)
 				}
 			}
 		} else {
+			a.guessAll(b)
 			a.hs.reset(b.paras)
 		}
+		a.next = min(a.next, first)
 	}
 	switch {
 	case a.anchor >= first+len(old):
@@ -124,7 +142,8 @@ func (a *area) edited(b *buffer, first int, old []paragraph, after int) {
 func (a *area) sync(b *buffer, params text.Params) {
 	if params != a.params {
 		for i := range b.paras {
-			b.paras[i].layout, b.paras[i].h, b.paras[i].known = nil, 0, false
+			pr := &b.paras[i]
+			pr.layout, pr.h, pr.known, pr.guessed = nil, 0, false, false
 		}
 		a.laid = 0
 		a.params = params
@@ -132,12 +151,17 @@ func (a *area) sync(b *buffer, params text.Params) {
 		empty := params
 		empty.Text = ""
 		a.line = textSystem().Layout(empty).Lines[0]
+		words := params
+		words.Text, words.Width, words.NoWrap = sampleWords, 0, true
+		a.col = textSystem().Layout(words).Width / float32(len(sampleWords))
 	}
 	if a.version != b.version || len(a.hs.measured) != len(b.paras)+1 {
 		if a.version != b.version {
 			a.laid = 0 // a new text: its paragraphs have no layouts
 		}
+		a.guessAll(b)
 		a.hs.reset(b.paras)
+		a.next = 0
 		a.version = b.version
 		a.anchor = min(a.anchor, len(b.paras)-1)
 	}
@@ -192,13 +216,92 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	if pr.layout == nil {
 		a.laid++
 	}
-	if pr.known {
+	switch {
+	case pr.known:
 		a.hs.add(p, float64(l.Height-pr.h), 0)
-	} else {
+	case pr.guessed:
+		a.hs.add(p, float64(l.Height-pr.guess), 0)
+	default:
 		a.hs.add(p, float64(l.Height), -1)
 	}
 	pr.layout, pr.compose, pr.spans, pr.block, pr.gap, pr.h, pr.known = l, compose, spans, block, gap, l.Height, true
+	pr.guessed = false
 	return l
+}
+
+// sampleWords is a line of words whose letters average how wide a column
+// of a narrow letter is in a font.
+const sampleWords = "The quick brown fox jumps over the lazy dog, 0123456789."
+
+// guessHeight returns how high a paragraph of cols columns is guessed to
+// be: as many lines as it fills of the width, or one where lines do not
+// wrap.
+func (a *area) guessHeight(cols int) float32 {
+	rows := 1
+	if w := a.params.Width; w > 0 && !a.params.NoWrap && cols > 0 {
+		rows = max(1, int(math.Ceil(float64(float32(cols)*a.col/w))))
+	}
+	return float32(rows) * a.line.Height
+}
+
+// guessAll guesses the heights of the paragraphs not measured nor guessed
+// yet; those of an indexed text too long to count stay estimated as the
+// paragraphs measured average.
+func (a *area) guessAll(b *buffer) {
+	if a.col <= 0 {
+		return
+	}
+	if b.indexed {
+		b.countColumns()
+	}
+	for i := range b.paras {
+		pr := &b.paras[i]
+		if pr.known || pr.guessed || b.indexed && !pr.counted {
+			continue
+		}
+		pr.guess, pr.guessed = a.guessHeight(b.columns(i)), true
+	}
+}
+
+// measureBudget is how long a frame measures the paragraphs out of view
+// at most (measureRest): a short text all at once.
+const measureBudget = 4 * time.Millisecond
+
+// maxMeasured is how many paragraphs a text has at most for measureRest to
+// measure them all, frame after frame: those of a longer one stay guessed
+// until they show.
+const maxMeasured = 50_000
+
+// measureRest lays out the paragraphs not measured yet, from the top, for
+// measureBudget, and asks for the next frame to go on until all are: the
+// height of the text, and the scroll bar, come to be what they are rather
+// than guessed, which wrapping lines make far off. Those far from the
+// view give up their layouts at once, keeping their heights. Where lines
+// do not wrap, the guesses hold.
+func (a *area) measureRest(e *node, ed *editor) {
+	b := &ed.buf
+	n := len(b.paras)
+	if a.next >= n || a.params.NoWrap || a.params.Width <= 0 || n > maxMeasured {
+		return
+	}
+	start := time.Now()
+	lo, hi := a.first-maxLaid/4, a.last+maxLaid/4
+	for k := 0; a.next < n; a.next++ {
+		pr := &b.paras[a.next]
+		if pr.known {
+			continue
+		}
+		if k++; k%16 == 0 && time.Since(start) > measureBudget {
+			e.c.rt.animating = true
+			return
+		}
+		had := pr.layout != nil
+		a.paraLayout(ed, a.next)
+		if !had && (a.next < lo || a.next > hi) {
+			pr.layout = nil
+			a.laid--
+		}
+	}
 }
 
 // collapsed returns a copy of l whose lines take no room but the first,
@@ -354,6 +457,9 @@ func (a *area) layout(e *node, cw, ch float32) {
 	if st.scrollY != a.lastScroll {
 		a.setScroll(st.scrollY) // the wheel or the scroll bar
 	}
+	// The view keeps its place by its anchor (place) as the paragraphs
+	// above it are measured.
+	a.measureRest(e, ed)
 	// The text shows through the padding, inside the border.
 	above, below := e.pad[0], e.pad[2]
 	a.place(ed, ch, above, below)

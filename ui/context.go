@@ -568,6 +568,11 @@ type state struct {
 	// scroll bars: they show only while it is hovered or a bar is
 	// dragged.
 	barsShown bool
+	// heldW and heldH are the content's size as the wheel or a touchpad
+	// started scrolling it, which its thumbs keep until heldUntil
+	// (holdBars).
+	heldW, heldH float64
+	heldUntil    time.Time
 	// track is the ScrollState of the last frame's element, which events
 	// that scroll it update (scrollTo).
 	track *ScrollState

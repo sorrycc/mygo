@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
 )
 
@@ -1037,5 +1038,150 @@ func TestTextRangesOfParagraphs(t *testing.T) {
 	}
 	if key := ed.rangeKey(ed.buf.start(1), ed.buf.end(1)); key == "" {
 		t.Error("the second paragraph has a weight, but no key")
+	}
+}
+
+// mixedText is a text of paragraphs short and long, of words and of
+// ideographs, and empty, as notes are, whose heights the first of them
+// estimate badly.
+func mixedText(n int) string {
+	var b strings.Builder
+	for i := range n {
+		switch i % 5 {
+		case 0:
+			b.WriteString("- [x] a short task")
+		case 1:
+			b.WriteString(strings.Repeat("a longer line of words that wraps ", 1+i%4))
+		case 2:
+			b.WriteString(strings.Repeat("中文的一段话会换行，", 1+i%6))
+		case 4:
+			b.WriteString("https://example.com/" + strings.Repeat("x", i))
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// TestTextAreaMeasuresItsText checks that a text area wrapping a short
+// text measures all of it at once, a string or a TextBuffer, for its
+// height, which the scroll bar shows, to be the text's laid out whole and
+// to stay so as it scrolls.
+func TestTextAreaMeasuresItsText(t *testing.T) {
+	s := mixedText(150)
+	buf := NewTextBuffer(s)
+	for _, indexed := range []bool{false, true} {
+		tt := coreNewTester(func(c *context) {
+			if indexed {
+				coreTextAreaBuffer(c, buf).Fill()
+			} else {
+				coreTextArea(c, &s).Fill()
+			}
+		}, 300, 400)
+		var st *state
+		for _, x := range tt.rt.states {
+			if x.editor != nil {
+				st = x
+			}
+		}
+		ed := st.editor
+		for i := range ed.buf.paras {
+			if !ed.buf.paras[i].known {
+				t.Fatalf("indexed %v: paragraph %d is not measured", indexed, i)
+			}
+		}
+		params := ed.area.params
+		params.Text = s
+		whole := textSystem().Layout(params)
+		if got := ed.area.hs.top(len(ed.buf.paras)); math.Abs(got-float64(whole.Height)) > 0.5 {
+			t.Errorf("indexed %v: the text is %v high, laid out whole %v", indexed, got, whole.Height)
+		}
+		h := st.contentH
+		tt.Scroll(100, 100, 0, 1500)
+		tt.Frame()
+		if st.scrollY < 1000 || st.contentH != h {
+			t.Errorf("indexed %v: scrolled to %v, the content went from %v high to %v", indexed, st.scrollY, h, st.contentH)
+		}
+	}
+}
+
+// TestTextAreaGuessesHeights checks that the heights guessed of
+// paragraphs not laid out yet come near those they are laid out, by how
+// wide they are, a string or a TextBuffer.
+func TestTextAreaGuessesHeights(t *testing.T) {
+	s := mixedText(400)
+	buf := NewTextBuffer(s)
+	for _, indexed := range []bool{false, true} {
+		tt := coreNewTester(func(c *context) {
+			if indexed {
+				coreTextAreaBuffer(c, buf).Fill()
+			} else {
+				coreTextArea(c, &s).Fill()
+			}
+		}, 300, 400)
+		var ed *editor
+		for _, x := range tt.rt.states {
+			if x.editor != nil {
+				ed = x.editor
+			}
+		}
+		b, a := &ed.buf, ed.area
+		n := len(b.paras)
+		want := a.hs.top(n)
+		for i := range b.paras {
+			pr := &b.paras[i]
+			pr.layout, pr.known, pr.guessed, pr.counted = nil, false, false, false
+		}
+		a.guessAll(b)
+		a.hs.reset(b.paras)
+		if _, unknown := a.hs.totals(); unknown != 0 {
+			t.Fatalf("indexed %v: %d paragraphs are not guessed", indexed, unknown)
+		}
+		if got := a.hs.top(n); math.Abs(got-want) > want*0.1 {
+			t.Errorf("indexed %v: the text is guessed %v high, laid out %v", indexed, got, want)
+		}
+		// The paragraphs an edit makes are guessed too.
+		tt.Press(20, 15)
+		tt.Release(20, 15)
+		tt.Type(strings.Repeat("words to wrap ", 40) + "\n")
+		for i := range b.paras {
+			if pr := &b.paras[i]; !pr.known && !pr.guessed && (!indexed || pr.counted) {
+				t.Fatalf("indexed %v: paragraph %d is neither measured nor guessed after an edit", indexed, i)
+			}
+		}
+	}
+}
+
+// TestScrollBarsHoldWhileScrolling checks that the thumb of a container
+// keeps its length while a touchpad scrolls it and its content grows, and
+// takes the length of the content's share in view once it stops.
+func TestScrollBarsHoldWhileScrolling(t *testing.T) {
+	tall := float32(800)
+	tt := coreNewTester(func(c *context) {
+		coreScroll(c).Size(100, 200).Children(func() {
+			coreBox(c).Size(100, tall)
+		})
+	}, 200, 200)
+	thumb := func() float32 {
+		for _, op := range tt.h.last.Ops {
+			if op.Kind == scene.OpFill && op.Rect.X > 80 && op.Rect.W < 12 {
+				return op.Rect.H
+			}
+		}
+		return 0
+	}
+	tt.Move(50, 100)
+	before := thumb()
+	if before == 0 {
+		t.Fatal("no thumb shows over the container")
+	}
+	tt.Scroll(50, 100, 0, 100)
+	tall = 1600
+	tt.Frame()
+	if got := thumb(); got != before {
+		t.Errorf("the thumb went from %v long to %v as the container scrolled", before, got)
+	}
+	tt.Advance(barsHold + 50*time.Millisecond)
+	if got := thumb(); got >= before*0.75 {
+		t.Errorf("the thumb is %v long once the scrolling stopped, %v before the content grew twice as high", got, before)
 	}
 }
