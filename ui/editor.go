@@ -233,7 +233,7 @@ func (ed *editor) process(c *context, e *node) {
 			}
 		case editCommand:
 			ed.commitCompose()
-			ed.command(c, ev.text)
+			ed.command(c, st, ev.text)
 		}
 	}
 	clear(queue)

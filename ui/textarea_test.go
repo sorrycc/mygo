@@ -1185,3 +1185,31 @@ func TestScrollBarsHoldWhileScrolling(t *testing.T) {
 		t.Errorf("the thumb is %v long once the scrolling stopped, %v before the content grew twice as high", got, before)
 	}
 }
+
+// Copy with nothing selected in a text input goes on to its HandleInput,
+// for a find field to copy the item it chose; with text selected, the
+// input copies it.
+func TestTextInputCopyNothingSelected(t *testing.T) {
+	v, copies := "query", 0
+	tt := NewTester(func(c *Context) {
+		TextInput(c, &v).AutoFocus().Label("field").Width(400).HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputCommand && ev.Text == "copy" {
+				copies++
+				return true
+			}
+			return false
+		})
+	}, 500, 120)
+	tt.Frame()
+	tt.Command("copy")
+	tt.Frame()
+	if copies != 1 || tt.Clipboard() != "" {
+		t.Fatalf("copy with nothing selected: handler took %d, clipboard %q; want 1 and empty", copies, tt.Clipboard())
+	}
+	tt.Command("selectAll")
+	tt.Command("copy")
+	tt.Frame()
+	if copies != 1 || tt.Clipboard() != "query" {
+		t.Errorf("copy with the text selected: handler took %d, clipboard %q; want 1 and %q", copies, tt.Clipboard(), "query")
+	}
+}

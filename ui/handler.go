@@ -24,7 +24,8 @@ const (
 	// comes again as "paste" when the element doesn't take it),
 	// "selectAll", "undo", "redo" or "delete", or one of the Format menu,
 	// as Bold: "bold", "italic", "underline", "strikethrough",
-	// "alignLeft", "alignCenter" or "alignRight".
+	// "alignLeft", "alignCenter" or "alignRight". A text input takes
+	// them itself, but for Copy with nothing selected.
 	InputCommand
 	// InputPointerDown and InputPointerUp report Button pressed or
 	// released at X, Y, with Clicks the count of quick successive presses

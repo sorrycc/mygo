@@ -290,19 +290,19 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 	case KeyA:
 		ed.selectAll()
 	case KeyC:
-		ed.command(c, "copy")
+		ed.command(c, st, "copy")
 	case KeyX:
-		ed.command(c, "cut")
+		ed.command(c, st, "cut")
 	case KeyV:
-		ed.command(c, "paste")
+		ed.command(c, st, "paste")
 	case KeyZ:
 		if shift {
-			ed.command(c, "redo")
+			ed.command(c, st, "redo")
 		} else {
-			ed.command(c, "undo")
+			ed.command(c, st, "undo")
 		}
 	case KeyY:
-		ed.command(c, "redo")
+		ed.command(c, st, "redo")
 	}
 }
 
@@ -330,7 +330,10 @@ func (ed *editor) emacsKey(key Key, shift bool) bool {
 	return true
 }
 
-func (ed *editor) command(c *context, name string) {
+// command applies an edit command of the menus to the editor of st. Copy
+// with nothing selected goes on to st's HandleInput, for a field to copy
+// what it stands for, as a find field the item it chose.
+func (ed *editor) command(c *context, st *state, name string) {
 	a, b := ed.selection()
 	h := c.rt.host
 	if ed.readOnly && name != "copy" && name != "selectAll" {
@@ -340,6 +343,8 @@ func (ed *editor) command(c *context, name string) {
 	case "copy":
 		if a != b && !ed.password {
 			h.writeClipboard(ed.selectedText())
+		} else if a == b {
+			c.rt.deliver(st, InputEvent{Kind: InputCommand, Text: name})
 		}
 	case "cut":
 		if a != b && !ed.password {
