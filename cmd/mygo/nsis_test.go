@@ -85,49 +85,61 @@ func TestConfigPublisher(t *testing.T) {
 }
 
 // TestNSISCloseApp checks the functions with which the installer and the
-// uninstaller quit the app, silent ones too.
+// uninstaller quit the app, silent ones too: through Windows, with no
+// script that antivirus heuristics take for malware.
 func TestNSISCloseApp(t *testing.T) {
 	script := nsisCloseApp(&Config{Name: "My App"})
-	for _, s := range []string{"Function CloseApp\n", "Function un.CloseApp\n", "IfSilent close\n", "$$env:MYGO_APP_SCRIPT"} {
+	for _, s := range []string{
+		"Function CloseApp\n", "Function un.CloseApp\n",
+		"Function AppProcesses\n", "Function un.AppProcesses\n",
+		"Function WaitApp\n", "Function un.WaitApp\n",
+		"  Call un.AppProcesses\n", "  Call un.WaitApp\n",
+		"IfSilent close\n",
+		"kernel32::K32EnumProcesses", "kernel32::QueryFullProcessImageNameW", "kernel32::TerminateProcess",
+		`nsExec::Exec '"$SYSDIR\taskkill.exe" /PID $R6'`,
+	} {
 		if !strings.Contains(script, s) {
 			t.Errorf("no %q in:\n%s", s, script)
 		}
 	}
-	for _, s := range []string{
-		"$_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)",
-		"$running | Stop-Process -Force",
-	} {
-		if !strings.Contains(closeAppPS1, s) {
-			t.Errorf("closeAppPS1 has no %q", s)
+	for _, s := range []string{"powershell", "ExecutionPolicy", "FileWrite"} {
+		if strings.Contains(strings.ToLower(script), strings.ToLower(s)) {
+			t.Errorf("%q in:\n%s", s, script)
 		}
 	}
-	for i, r := range script + closeAppPS1 {
+	// The uninstaller's functions call only uninstaller functions, which
+	// NSIS requires.
+	_, un, _ := strings.Cut(script, "Function un.")
+	for _, line := range strings.Split(un, "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "Call "); ok && !strings.HasPrefix(name, "un.") {
+			t.Errorf("the uninstaller calls %s", name)
+		}
+	}
+	for i, r := range script {
 		if r >= 0x80 {
 			t.Fatalf("%q at %d: not ASCII", r, i)
 		}
 	}
-	// The installer writes the script, its lines escaped for NSIS, each
-	// shorter than an NSIS string.
-	var written strings.Builder
-	first, _, _ := strings.Cut(script, "FunctionEnd")
-	for _, line := range strings.Split(first, "\n") {
-		if text, ok := strings.CutPrefix(line, "  FileWrite $2 "); ok {
-			if len(text) > 1000 {
-				t.Errorf("line of %d characters: %s", len(text), text)
-			}
-			text = strings.TrimSuffix(strings.TrimPrefix(text, `"`), `"`)
-			written.WriteString(strings.NewReplacer(`$\r$\n`, "\n", `$\t`, "\t", `$\"`, `"`, `$$`, `$`).Replace(text))
+}
+
+// TestNSISVersionInfo checks the file properties of the installer.
+func TestNSISVersionInfo(t *testing.T) {
+	info := nsisVersionInfo(&Config{Name: "My App", Version: "1.2.3-beta.1", Copyright: "Copyright © 2026 Example Inc."})
+	for _, line := range []string{
+		`VIProductVersion "1.2.3.0"`,
+		`VIAddVersionKey "ProductName" "My App"`,
+		`VIAddVersionKey "FileDescription" "My App Setup"`,
+		`VIAddVersionKey "FileVersion" "1.2.3-beta.1"`,
+		`VIAddVersionKey "ProductVersion" "1.2.3-beta.1"`,
+		`VIAddVersionKey "CompanyName" "Example Inc."`,
+		`VIAddVersionKey "LegalCopyright" "Copyright © 2026 Example Inc."`,
+	} {
+		if !strings.Contains(info, line+"\n") {
+			t.Errorf("no %s in:\n%s", line, info)
 		}
 	}
-	if got := written.String(); got != closeAppPS1 {
-		t.Errorf("the installer writes\n%s", got)
-	}
-	if pwsh, err := exec.LookPath("pwsh"); err == nil {
-		path := filepath.Join(t.TempDir(), "close.ps1")
-		os.WriteFile(path, []byte(closeAppPS1), 0o644)
-		if out, err := exec.Command(pwsh, "-NoProfile", "-Command", "$null = [scriptblock]::Create((Get-Content -Raw '"+path+"'))").CombinedOutput(); err != nil {
-			t.Errorf("pwsh cannot parse closeAppPS1: %v\n%s", err, out)
-		}
+	if info := nsisVersionInfo(&Config{Name: "My App", Version: "1.0.0"}); strings.Contains(info, "CompanyName") || strings.Contains(info, "LegalCopyright") {
+		t.Errorf("empty keys in:\n%s", info)
 	}
 }
 

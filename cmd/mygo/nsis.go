@@ -208,7 +208,7 @@ BrandingText " "
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 ` + languages + `
-` + nsisCloseApp(c) + `
+` + nsisVersionInfo(c) + nsisCloseApp(c) + `
 Section
   Push "$INSTDIR"
   Call CloseApp
@@ -307,101 +307,156 @@ func nsisUninstallEntry(c *Config, uninstallKey, exe string) string {
 	return b.String()
 }
 
-// closeAppPS1 is the PowerShell that quits the processes of the app,
-// those whose executables are in the folder $env:MYGO_APP_DIR: it asks
-// their windows to close and, after 10 s, stops those still running, as an
-// app in the tray or menu bar keeps running without windows. With
-// $env:MYGO_APP_CHECK=1, it only tells whether any runs: exit code 2 when
-// one does. Exit code 1 is for processes that did not stop. It finds the
-// processes with CIM, which sees the paths of 64-bit processes from a
-// 32-bit PowerShell too.
-const closeAppPS1 = `$ErrorActionPreference = 'SilentlyContinue'
-$dir = $env:MYGO_APP_DIR.TrimEnd('\') + '\'
-# Not the installer, which starts this.
-$installer = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
-function Get-AppProcess {
-	@(Get-CimInstance Win32_Process | Where-Object {
-		$_.ExecutablePath -and $_.ProcessId -ne $PID -and $_.ProcessId -ne $installer -and $_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)
-	} | ForEach-Object { Get-Process -Id $_.ProcessId })
-}
-$running = Get-AppProcess
-if ($running.Count -eq 0) { exit 0 }
-if ($env:MYGO_APP_CHECK -eq '1') { exit 2 }
-foreach ($p in $running) { [void]$p.CloseMainWindow() }
-$deadline = (Get-Date).AddSeconds(10)
-foreach ($p in $running) {
-	$left = [int]($deadline - (Get-Date)).TotalMilliseconds
-	if ($left -lt 0) { $left = 0 }
-	[void]$p.WaitForExit($left)
-}
-$running = @(Get-AppProcess)
-if ($running.Count -eq 0) { exit 0 }
-$running | Stop-Process -Force
-$deadline = (Get-Date).AddSeconds(10)
-foreach ($p in $running) {
-	$left = [int]($deadline - (Get-Date)).TotalMilliseconds
-	if ($left -lt 0) { $left = 0 }
-	[void]$p.WaitForExit($left)
-}
-if (@(Get-AppProcess).Count -gt 0) { exit 1 }
-exit 0
-`
-
 // nsisCloseApp returns the installer and uninstaller functions CloseApp,
 // which quit the app running from the folder on the stack before its
-// files are replaced or deleted (closeAppPS1). A silent install or
-// uninstall (/S), as an update runs, quits it without asking; the others
-// ask first and stop when the user cancels. Windows without PowerShell go
-// on as before.
+// files are replaced or deleted: they ask the windows of its processes,
+// those whose executables are in the folder, to close and, after 10 s,
+// end those still running, as an app in the tray or menu bar keeps
+// running without windows. A silent install or uninstall (/S), as an
+// update runs, quits it without asking; the others ask first and stop
+// when the user cancels.
+//
+// It calls Windows through the System plugin, not a script: an installer
+// that writes a PowerShell script and runs it past the execution policy
+// is what antivirus heuristics take for malware.
 func nsisCloseApp(c *Config) string {
-	// NSIS strings hold 1024 characters, too few for the script on the
-	// command line: the installer writes it to a file, line by line, which
-	// PowerShell reads, named by the environment, as quotes would not do
-	// for every path. Execution policies do not apply to a command.
-	var write strings.Builder
-	for _, line := range strings.SplitAfter(closeAppPS1, "\n") {
-		if line != "" {
-			write.WriteString("  FileWrite $2 " + nsisString(strings.TrimSuffix(line, "\n")+"\r\n") + "\n")
-		}
-	}
-	command := `'"$1" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create([IO.File]::ReadAllText($$env:MYGO_APP_SCRIPT)))"'`
 	running := nsisString(c.windowsName() + " is running. Close it to continue?")
 	stuck := nsisString(c.windowsName() + " is still running. Quit it, then try again.")
 	var out strings.Builder
-	for _, prefix := range []string{"", "un."} {
-		out.WriteString(`; Quits the app running from the folder on the stack.
-Function ` + prefix + `CloseApp
+	for _, p := range []string{"", "un."} {
+		out.WriteString(`; Counts the processes whose executables are in the folder under the
+; mode on the stack, not the installer's own: "count" only counts them,
+; "close" asks the windows of each to close, as taskkill without /F does,
+; and "kill" ends them. QueryFullProcessImageName sees the paths of 64-bit
+; processes from the 32-bit installer too.
+Function ` + p + `AppProcesses
+  Exch $R0
+  Exch
+  Exch $R1
+  Push $R2
+  Push $R3
+  Push $R4
+  Push $R5
+  Push $R6
+  Push $R7
+  Push $R8
+  Push $R9
+  StrCpy $R3 0
+  System::Alloc 65536
+  Pop $R2
+  IntPtrCmp $R2 0 end
+  System::Call 'kernel32::K32EnumProcesses(p R2, i 65536, *i .R4) i .R5'
+  IntCmp $R5 0 free
+  IntOp $R4 $R4 / 4
+  StrCpy $R5 0
+  loop:
+    IntCmp $R5 $R4 free 0 free
+    IntOp $R7 $R5 * 4
+    IntPtrOp $R7 $R2 + $R7
+    System::Call '*$R7(i .R6)'
+    IntOp $R5 $R5 + 1
+    System::Call 'kernel32::GetCurrentProcessId() i .R7'
+    IntCmp $R6 $R7 loop
+    ; PROCESS_QUERY_LIMITED_INFORMATION
+    System::Call 'kernel32::OpenProcess(i 0x1000, i 0, i R6) p .R7'
+    IntPtrCmp $R7 0 loop
+    System::Call 'kernel32::QueryFullProcessImageNameW(p R7, i 0, w .R8, *i ${NSIS_MAX_STRLEN}) i .R9'
+    System::Call 'kernel32::CloseHandle(p R7)'
+    IntCmp $R9 0 loop
+    StrLen $R9 $R1
+    StrCpy $R8 $R8 $R9
+    ; StrCmp ignores case, as Windows paths do.
+    StrCmp $R8 $R1 0 loop
+    IntOp $R3 $R3 + 1
+    StrCmp $R0 "close" 0 kill
+    nsExec::Exec '"$SYSDIR\taskkill.exe" /PID $R6'
+    Pop $R9
+    Goto loop
+    kill:
+    StrCmp $R0 "kill" 0 loop
+    ; PROCESS_TERMINATE
+    System::Call 'kernel32::OpenProcess(i 0x1, i 0, i R6) p .R7'
+    IntPtrCmp $R7 0 loop
+    System::Call 'kernel32::TerminateProcess(p R7, i 1)'
+    System::Call 'kernel32::CloseHandle(p R7)'
+    Goto loop
+  free:
+  System::Free $R2
+  end:
+  StrCpy $R0 $R3
+  Pop $R9
+  Pop $R8
+  Pop $R7
+  Pop $R6
+  Pop $R5
+  Pop $R4
+  Pop $R3
+  Pop $R2
+  Pop $R1
+  Exch $R0
+FunctionEnd
+
+; Waits up to 10 s for the processes of the app in the folder on the stack
+; to quit, and leaves how many still run.
+Function ` + p + `WaitApp
+  Exch $R0
+  Push $R1
+  Push $R2
+  StrCpy $R1 100
+  loop:
+    Push $R0
+    Push "count"
+    Call ` + p + `AppProcesses
+    Pop $R2
+    StrCmp $R2 0 done
+    IntOp $R1 $R1 - 1
+    IntCmp $R1 0 done
+    Sleep 100
+    Goto loop
+  done:
+  StrCpy $R0 $R2
+  Pop $R2
+  Pop $R1
+  Exch $R0
+FunctionEnd
+
+; Quits the app running from the folder on the stack.
+Function ` + p + `CloseApp
   Exch $0
   Push $1
-  Push $2
-  ; The PowerShell of the system's own architecture, not the 32-bit one
-  ; that a 32-bit installer would otherwise start.
-  StrCpy $1 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-  IfFileExists $1 +2
-  StrCpy $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
-  IfFileExists $1 0 done
-  InitPluginsDir
-  FileOpen $2 "$PLUGINSDIR\close-app.ps1" w
-` + write.String() + `  FileClose $2
-  System::Call 'Kernel32::SetEnvironmentVariable(t "MYGO_APP_SCRIPT", t "$PLUGINSDIR\close-app.ps1")'
-  System::Call 'Kernel32::SetEnvironmentVariable(t "MYGO_APP_DIR", t r0)'
+  ; With a backslash, so that the folder is no prefix of another.
+  StrCpy $1 $0 1 -1
+  StrCmp $1 "\" +2
+  StrCpy $0 "$0\"
+  Push $0
+  Push "count"
+  Call ` + p + `AppProcesses
+  Pop $1
+  StrCmp $1 0 done
   IfSilent close
-  System::Call 'Kernel32::SetEnvironmentVariable(t "MYGO_APP_CHECK", t "1")'
-  nsExec::Exec ` + command + `
-  Pop $2
-  System::Call 'Kernel32::SetEnvironmentVariable(t "MYGO_APP_CHECK", t "")'
-  StrCmp $2 "2" 0 done
   MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION ` + running + ` IDOK close
   Abort
   close:
-  nsExec::Exec ` + command + `
-  Pop $2
-  StrCmp $2 "1" 0 done
+  Push $0
+  Push "close"
+  Call ` + p + `AppProcesses
+  Pop $1
+  Push $0
+  Call ` + p + `WaitApp
+  Pop $1
+  StrCmp $1 0 done
+  Push $0
+  Push "kill"
+  Call ` + p + `AppProcesses
+  Pop $1
+  Push $0
+  Call ` + p + `WaitApp
+  Pop $1
+  StrCmp $1 0 done
   MessageBox MB_OK|MB_ICONSTOP ` + stuck + ` /SD IDOK
   SetErrorLevel 2
   Quit
   done:
-  Pop $2
   Pop $1
   Pop $0
 FunctionEnd
@@ -409,6 +464,27 @@ FunctionEnd
 `)
 	}
 	return out.String()
+}
+
+// nsisVersionInfo returns the commands that give the installer the file
+// properties of the app, its name, version and publisher, as Explorer
+// shows them: an executable without them looks the more like malware.
+func nsisVersionInfo(c *Config) string {
+	v := windowsVersion(c.Version)
+	var b strings.Builder
+	fmt.Fprintf(&b, "VIProductVersion \"%d.%d.%d.%d\"\n", v[0], v[1], v[2], v[3])
+	key := func(name, value string) {
+		if value != "" {
+			fmt.Fprintf(&b, "VIAddVersionKey %s %s\n", nsisString(name), nsisString(value))
+		}
+	}
+	key("ProductName", c.windowsName())
+	key("FileDescription", c.windowsName()+" Setup")
+	key("FileVersion", c.Version)
+	key("ProductVersion", c.Version)
+	key("CompanyName", c.publisher())
+	key("LegalCopyright", c.Copyright)
+	return b.String()
 }
 
 // uninstallerSigning returns the NSIS command that signs the uninstaller
