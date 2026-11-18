@@ -4,9 +4,10 @@
 // It draws paths and the basic shapes, groups, nested svg elements, use
 // and symbol elements, transforms, fills and strokes (with joins, caps
 // and dashes) of colors, currentColor and linear and radial gradients,
-// opacity, clip paths and masks, and style sheets of simple selectors
-// (type, class and id). Text, embedded images, patterns, markers and
-// filters are not drawn.
+// opacity, clip paths and masks, style sheets of simple selectors (type,
+// class and id), and the fills of text in the fonts Draw is given. Strokes
+// of text, text on paths, embedded images, patterns, markers and filters
+// are not drawn.
 package svg
 
 import (
@@ -48,25 +49,25 @@ func (d *Doc) UsesCurrentColor() bool { return d.current }
 // Draw draws the document over the pixels of dst, fitting its viewBox in
 // them as its preserveAspectRatio says, or stretched to them with
 // stretch. currentColor is current where the document does not set the
-// color property.
-func (d *Doc) Draw(dst *image.RGBA, current color.NRGBA, stretch bool) {
+// color property. Text is set in fonts, and left out when fonts is nil.
+func (d *Doc) Draw(dst *image.RGBA, current color.NRGBA, stretch bool, fonts Fonts) {
 	b := dst.Bounds()
 	a := d.par
 	if stretch {
 		a = aspect{none: true}
 	}
-	d.draw(dst, current, viewBoxTransform(d.view, a, float64(b.Dx()), float64(b.Dy())))
+	d.draw(dst, current, viewBoxTransform(d.view, a, float64(b.Dx()), float64(b.Dy())), fonts)
 }
 
 // DrawRotated draws the document as Draw does in a box w×h pixels at the
 // center of dst, turned by degrees clockwise around it.
-func (d *Doc) DrawRotated(dst *image.RGBA, current color.NRGBA, w, h, degrees float64) {
+func (d *Doc) DrawRotated(dst *image.RGBA, current color.NRGBA, w, h, degrees float64, fonts Fonts) {
 	b := dst.Bounds()
 	m := translate(float64(b.Dx())/2, float64(b.Dy())/2).mul(rotation(degrees)).mul(translate(-w/2, -h/2))
-	d.draw(dst, current, m.mul(viewBoxTransform(d.view, d.par, w, h)))
+	d.draw(dst, current, m.mul(viewBoxTransform(d.view, d.par, w, h)), fonts)
 }
 
-func (d *Doc) draw(dst *image.RGBA, current color.NRGBA, m matrix) {
+func (d *Doc) draw(dst *image.RGBA, current color.NRGBA, m matrix, fonts Fonts) {
 	b := dst.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w <= 0 || h <= 0 || d.root == nil {
@@ -77,6 +78,8 @@ func (d *Doc) draw(dst *image.RGBA, current color.NRGBA, m matrix) {
 	if r.w != w || r.h != h {
 		r.w, r.h, r.free = w, h, nil
 	}
+	r.fonts = fonts
+	defer func() { r.fonts = nil }()
 	r.current = rgba{float64(current.R) / 255, float64(current.G) / 255, float64(current.B) / 255, float64(current.A) / 255}
 	l := r.layer()
 	defer r.release(l)

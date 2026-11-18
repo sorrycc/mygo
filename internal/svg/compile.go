@@ -14,6 +14,7 @@ type node struct {
 	clip    *clipDef
 	mask    *maskDef
 	shape   *shape
+	text    *textNode
 	kids    []*node
 	// bbox is the box around its geometry in its user space, for what
 	// is in objectBoundingBox units.
@@ -225,6 +226,8 @@ func (c *compiler) finish(n *node, st *style) {
 	if s := n.shape; s != nil {
 		n.bbox, n.hasBox = s.path.bounds()
 		n.single = s.fill.kind == paintNone || s.stroke.kind == paintNone
+	} else if n.text != nil {
+		n.bbox, n.hasBox = n.text.estimate()
 	} else {
 		for _, k := range n.kids {
 			if !k.hasBox {
@@ -244,7 +247,7 @@ func (c *compiler) finish(n *node, st *style) {
 // elem compiles a graphics element, or returns nil for others.
 func (c *compiler) elem(e *elem, parent *style) *node {
 	switch e.name {
-	case "g", "a", "switch", "svg", "use", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon":
+	case "g", "a", "switch", "svg", "use", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text":
 	default:
 		return nil
 	}
@@ -283,6 +286,10 @@ func (c *compiler) elem(e *elem, parent *style) *node {
 		if !c.use(n, e, &st) {
 			return nil
 		}
+	case "text":
+		if n.text = c.text(e, &st); n.text == nil {
+			return nil
+		}
 	default:
 		if !st.visible {
 			return nil
@@ -298,7 +305,7 @@ func (c *compiler) elem(e *elem, parent *style) *node {
 			dashes: st.dashes, dashOffset: st.dashOffset, strokeFirst: st.strokeFirst,
 		}
 	}
-	if n.shape == nil && len(n.kids) == 0 {
+	if n.shape == nil && n.text == nil && len(n.kids) == 0 {
 		return nil
 	}
 	if t, ok := e.attrs["transform"]; ok {

@@ -6,10 +6,12 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/svg"
+	"github.com/egoist/mygo/internal/text"
 )
 
 // SVG is a vector image: an icon, a logo, an illustration. It stays sharp
@@ -26,8 +28,10 @@ import (
 // MyGo draws the paths and basic shapes of SVG, with groups, use and
 // symbol elements, transforms, colors, gradients, strokes and their
 // dashes, opacity, clip paths, masks and style sheets of simple
-// selectors. It leaves out text, embedded images, patterns, markers and
-// filters: convert text to paths before.
+// selectors, and text, filled, in the system's fonts, where Image shows
+// it. It leaves out the strokes of text, text on paths, embedded images,
+// patterns, markers and filters, and Icon draws no text: convert text to
+// paths for those.
 type SVG struct {
 	doc  *svg.Doc
 	id   uint64
@@ -219,14 +223,15 @@ func (p *Painter) drawIcon(s *SVG, r Rect, c Color, rotate float32) {
 }
 
 // rasterizeIcon draws the mask of the icon job: the coverage of its SVG,
-// whatever its colors.
+// whatever its colors. It runs within the text system's lock, which
+// setting text would take: icons draw no text.
 func (rt *engine) rasterizeIcon() (int, int, []byte) {
 	j := &rt.svgs.job
 	img := rt.canvasFor(j.cw, j.ch)
 	if j.rotate != 0 {
-		j.s.doc.DrawRotated(img, color.NRGBA{A: 255}, float64(j.w), float64(j.h), float64(j.rotate))
+		j.s.doc.DrawRotated(img, color.NRGBA{A: 255}, float64(j.w), float64(j.h), float64(j.rotate), nil)
 	} else {
-		j.s.doc.Draw(img, color.NRGBA{A: 255}, false)
+		j.s.doc.Draw(img, color.NRGBA{A: 255}, false, nil)
 	}
 	n := j.cw * j.ch
 	if cap(rt.svgs.mask) < n {
@@ -308,7 +313,7 @@ func (rt *engine) picture(k pictureKey) *scene.Image {
 		img = scene.NewImageRGBA(k.w, k.h, make([]byte, k.w*k.h*4))
 	}
 	c := k.color
-	k.s.doc.Draw(&image.RGBA{Pix: img.Pix, Stride: k.w * 4, Rect: image.Rect(0, 0, k.w, k.h)}, color.NRGBA{c.R, c.G, c.B, c.A}, k.stretch)
+	k.s.doc.Draw(&image.RGBA{Pix: img.Pix, Stride: k.w * 4, Rect: image.Rect(0, 0, k.w, k.h)}, color.NRGBA{c.R, c.G, c.B, c.A}, k.stretch, svgFonts{rt.text})
 	img.Changed()
 	pics[k] = &picture{img: img, used: rt.frame}
 	return img
@@ -321,4 +326,83 @@ func (rt *engine) prunePictures() {
 			delete(rt.svgs.pictures, k)
 		}
 	}
+}
+
+// svgFonts sets the text of SVGs in the system's fonts.
+type svgFonts struct{ sys *text.System }
+
+func (f svgFonts) Text(s string, ft svg.Font, scale float64) svg.TextImage {
+	if f.sys == nil || !(scale > 0) || ft.Size <= 0 {
+		return svg.TextImage{}
+	}
+	l := f.sys.Shape(text.Params{Text: s, Style: text.Style{Family: svgFamily(ft.Family), Size: float32(ft.Size), Weight: ft.Weight, Italic: ft.Italic}, NoWrap: true, KeepSpaces: true})
+	if len(l.Lines) == 0 {
+		return svg.TextImage{}
+	}
+	ln := &l.Lines[0]
+	out := svg.TextImage{Advance: float64(ln.Width), Ascent: float64(ln.Ascent), Descent: float64(ln.Descent)}
+	type glyph struct {
+		pix        []byte
+		x, y, w, h int
+	}
+	var gs []glyph
+	x0, y0, x1, y1 := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
+	for _, g := range ln.Glyphs {
+		out.Advance = max(out.Advance, float64(g.X+g.Advance-ln.X))
+		if g.Object || g.Font == nil {
+			continue
+		}
+		// The glyph's origin in pixels, from the start of the baseline.
+		px, py := float64(g.X-ln.X)*scale, float64(g.Y-ln.Baseline)*scale
+		fx := math.Floor(px)
+		pix, left, top, w, h := f.sys.GlyphMask(g.Font, g.ID, float32(scale), float32(px-fx))
+		if w <= 0 || h <= 0 {
+			continue
+		}
+		gx, gy := int(fx)+left, int(math.Round(py))+top
+		gs = append(gs, glyph{pix, gx, gy, w, h})
+		x0, y0, x1, y1 = min(x0, gx), min(y0, gy), max(x1, gx+w), max(y1, gy+h)
+	}
+	if len(gs) == 0 {
+		return out
+	}
+	w, h := x1-x0, y1-y0
+	if w > 1<<13 || h > 1<<13 {
+		return out
+	}
+	mask := make([]byte, w*h)
+	for _, g := range gs {
+		for y := range g.h {
+			row := mask[(g.y-y0+y)*w+g.x-x0:]
+			for x, v := range g.pix[y*g.w : (y+1)*g.w] {
+				// Glyphs that overlap cover their union.
+				a, b := uint32(row[x]), uint32(v)
+				row[x] = uint8(a + b - (a*b+127)/255)
+			}
+		}
+	}
+	out.Mask, out.W, out.H, out.X, out.Y = mask, w, h, float64(-x0), float64(-y0)
+	return out
+}
+
+// svgFamily returns the text system's list of families for an SVG's
+// font-family: without the quotes, and the generic families as the
+// system has them.
+func svgFamily(v string) string {
+	var out []string
+	for _, f := range strings.Split(v, ",") {
+		f = strings.Trim(strings.TrimSpace(f), `"'`)
+		switch strings.ToLower(f) {
+		case "":
+		case "sans-serif":
+			out = append(out, "system-ui")
+		case "serif":
+			out = append(out, "Times New Roman", "Times", "Noto Serif", "DejaVu Serif", "serif")
+		case "monospace", "ui-monospace":
+			out = append(out, "monospace")
+		default:
+			out = append(out, f)
+		}
+	}
+	return strings.Join(out, ", ")
 }

@@ -230,3 +230,34 @@ func TestParseSVGErrors(t *testing.T) {
 	}()
 	MustParseSVG([]byte("nope"))
 }
+
+func TestImageOfAnSVGDrawsItsText(t *testing.T) {
+	s := MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="100">
+  <rect width="320" height="100" fill="white"/>
+  <text x="16" y="55" font-size="24" fill="black">中文 Hello</text>
+</svg>`))
+	img := coreRender(func(c *context) {
+		coreBox(c).Fill().Background(RGB(255, 255, 255)).Draw(func(p *Painter, r Rect) {
+			p.Image(s, Rect{0, 0, 320, 100}, Contain)
+		})
+	}, 320, 100, 1)
+	// The text sits on its baseline, at y 55, from x 16.
+	dark, left, right := 0, 320, 0
+	for y := range 100 {
+		for x := range 320 {
+			if c := img.RGBAAt(x, y); c.R < 128 {
+				dark++
+				if y < 30 || y > 62 {
+					t.Fatalf("text at (%d, %d), away from its baseline", x, y)
+				}
+				left, right = min(left, x), max(right, x)
+			}
+		}
+	}
+	if dark < 100 {
+		t.Fatalf("the text drew %d dark pixels", dark)
+	}
+	if left < 14 || left > 24 || right < 100 {
+		t.Errorf("the text spans x %d to %d", left, right)
+	}
+}

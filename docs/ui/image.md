@@ -110,9 +110,12 @@ image, scrolling it or changing its color draws nothing again. MyGo draws
 paths and the basic shapes, groups, `use` and `symbol` elements,
 transforms, fills and strokes (with their joins, caps and dashes) of
 colors, `currentColor` and linear and radial gradients, opacity, clip
-paths, masks and style sheets of simple selectors (type, class and id). It
-leaves out text, embedded images, patterns, markers and filters: convert
-text to paths in your editor before exporting.
+paths, masks and style sheets of simple selectors (type, class and id),
+and text, filled, in the system's fonts: `text` and `tspan` elements with
+their positions, fonts, `text-anchor` and `dominant-baseline`. It leaves
+out the strokes of text, text on paths, embedded images, patterns, markers
+and filters, and [Icon](icon.md) draws no text: convert text to paths in
+your editor before exporting for those.
 
 In `Draw` callbacks, `Painter.Image` draws bitmaps and SVGs too.
 

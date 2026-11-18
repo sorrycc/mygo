@@ -267,6 +267,39 @@ func (s *System) Glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque
 	return g
 }
 
+// GlyphMask rasterizes glyph id of f at scale pixels per DIP, its origin
+// dx pixels (0 ≤ dx < 1) right of the left edge of a pixel, for drawing elsewhere than from the
+// atlases, as the text of SVGs is: a byte of coverage for each pixel of a
+// w×h box, which left and top place relative to the origin on the
+// baseline, y down. Colored glyphs give their alpha.
+func (s *System) GlyphMask(f *Font, id uint32, scale, dx float32) (pix []byte, left, top, w, h int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f == nil || f.released {
+		return nil, 0, 0, 0, 0
+	}
+	b := s.engine().glyph(f, id, scale, dx, f.shadeFor(0), false)
+	if b.w <= 0 || b.h <= 0 || b.w > 2048 || b.h > 2048 {
+		return nil, 0, 0, 0, 0
+	}
+	n := b.w * b.h
+	pix = make([]byte, n)
+	if b.color || b.subpixel {
+		if len(b.pix) < 4*n {
+			return nil, 0, 0, 0, 0
+		}
+		for i := range pix {
+			pix[i] = b.pix[4*i+3]
+		}
+	} else {
+		if len(b.pix) < n {
+			return nil, 0, 0, 0, 0
+		}
+		copy(pix, b.pix)
+	}
+	return pix, b.left, b.top, b.w, b.h
+}
+
 // place returns where the system's text stack draws a glyph of f whose pen
 // is at x: at position q of the n within a pixel, carry pixels right of
 // the pixel x is in.

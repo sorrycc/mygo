@@ -18,7 +18,7 @@ func draw(t *testing.T, src string, w, h int) *image.RGBA {
 		t.Fatalf("Parse: %v", err)
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	d.Draw(img, red, false)
+	d.Draw(img, red, false, nil)
 	return img
 }
 
@@ -397,7 +397,7 @@ func TestSizeAndAspect(t *testing.T) {
 	}
 	d, _ := Parse([]byte(`<svg viewBox="0 0 10 5">` + wide))
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	d.Draw(img, red, true)
+	d.Draw(img, red, true, nil)
 	if alphaSum(img) != 100 {
 		t.Error("the viewBox is not stretched")
 	}
@@ -460,7 +460,7 @@ func FuzzParse(f *testing.F) {
 		if err != nil {
 			return
 		}
-		d.Draw(image.NewRGBA(image.Rect(0, 0, 16, 16)), red, false)
+		d.Draw(image.NewRGBA(image.Rect(0, 0, 16, 16)), red, false, nil)
 	})
 }
 
@@ -510,7 +510,7 @@ func BenchmarkDrawIcon(b *testing.B) {
 			img := image.NewRGBA(image.Rect(0, 0, bc.size, bc.size))
 			for b.Loop() {
 				clear(img.Pix)
-				d.Draw(img, red, false)
+				d.Draw(img, red, false, nil)
 			}
 		})
 	}

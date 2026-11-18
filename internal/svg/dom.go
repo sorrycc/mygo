@@ -22,7 +22,7 @@ type elem struct {
 	attrs  map[string]string
 	kids   []*elem
 	parent *elem
-	text   string // of a style element
+	text   string // of a style element, or of a run of characters (#text)
 	// props are the declarations of its properties, in the order they
 	// apply: attributes, style sheets, then the style attribute.
 	props []decl
@@ -58,8 +58,9 @@ func parseXML(data []byte) (*elem, error) {
 			e := &elem{name: t.Name.Local, attrs: make(map[string]string, len(t.Attr))}
 			for _, a := range t.Attr {
 				// Namespaced attributes belong to editors, but for
-				// xlink:href, which href takes precedence over.
-				if a.Name.Space != "" && a.Name.Local != "href" {
+				// xlink:href, which href takes precedence over, and
+				// xml:space.
+				if a.Name.Space != "" && a.Name.Local != "href" && a.Name.Local != "space" {
 					continue
 				}
 				if _, ok := e.attrs[a.Name.Local]; ok && a.Name.Space != "" {
@@ -86,12 +87,37 @@ func parseXML(data []byte) (*elem, error) {
 				return finishDOM(root)
 			}
 		case xml.CharData:
-			if n := len(stack); skip == 0 && n > 0 && stack[n-1].name == "style" {
-				stack[n-1].text += string(t)
+			n := len(stack)
+			if skip > 0 || n == 0 {
+				continue
+			}
+			switch p := stack[n-1]; {
+			case p.name == "style":
+				p.text += string(t)
+			case inText(p):
+				// The characters of text keep their place among its
+				// tspans, as runs of their own.
+				if k := len(p.kids); k > 0 && p.kids[k-1].name == "#text" {
+					p.kids[k-1].text += string(t)
+				} else {
+					p.kids = append(p.kids, &elem{name: "#text", parent: p, text: string(t)})
+				}
 			}
 		}
 	}
 	return finishDOM(root)
+}
+
+// inText reports whether the characters in e are text to draw: e is a
+// text element, or a tspan, a or textPath element within one.
+func inText(e *elem) bool {
+	switch e.name {
+	case "text":
+		return true
+	case "tspan", "a", "textPath":
+		return e.parent != nil && inText(e.parent)
+	}
+	return false
 }
 
 func finishDOM(root *elem) (*elem, error) {

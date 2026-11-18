@@ -11,6 +11,8 @@ import (
 type renderer struct {
 	w, h    int
 	current rgba
+	fonts   Fonts
+	placed  []placedRun
 	z       vec.Rasterizer
 	// cov is the coverage of what is being drawn, a rectangle of the
 	// canvas.
@@ -72,6 +74,10 @@ func (r *renderer) node(n *node, ctm matrix, dst *layer, alpha float64) {
 }
 
 func (r *renderer) content(n *node, m matrix, dst *layer, alpha float64) {
+	if n.text != nil {
+		r.text(n.text, m, dst, alpha)
+		return
+	}
 	s := n.shape
 	if s == nil {
 		for _, k := range n.kids {
