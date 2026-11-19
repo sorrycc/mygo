@@ -1213,3 +1213,40 @@ func TestTextInputCopyNothingSelected(t *testing.T) {
 		t.Errorf("copy with the text selected: handler took %d, clipboard %q; want 1 and %q", copies, tt.Clipboard(), "query")
 	}
 }
+
+// A press held still keeps the caret where it went down, though the text
+// is laid out by its ranges, which hide and widen runes before it: each
+// frame the pointer is held finds it again over the text as it shows,
+// not as it reads without the ranges, which the public constructor's
+// input sees before the app gives them.
+func TestTextAreaPressHeldOverRanges(t *testing.T) {
+	s := "**bold** and the rest of the line"
+	// The selection as the app reads it, building the frame.
+	var sel [2]int
+	tt := NewTester(func(c *Context) {
+		area := TextArea(c, &s).Fill().TextRanges(
+			TextRange{Start: 0, End: 2, Hidden: true},
+			TextRange{Start: 2, End: 6, Weight: 700},
+			TextRange{Start: 6, End: 8, Hidden: true},
+		)
+		sel[0], sel[1] = area.TextAnchorCaret()
+	}, 400, 300)
+	tt.Press(150, 15)
+	tt.Frame()
+	anchor, caret := sel[0], sel[1]
+	if caret <= 8 || anchor != caret {
+		t.Fatalf("pressed at %d to %d, past the bold word", anchor, caret)
+	}
+	for range 4 {
+		tt.Frame()
+	}
+	if a, c := sel[0], sel[1]; a != anchor || c != caret {
+		t.Errorf("held still, the selection is %d to %d, not the caret at %d", a, c, caret)
+	}
+	tt.Move(300, 15)
+	tt.Frame()
+	if a, c := sel[0], sel[1]; a != anchor || c <= caret {
+		t.Errorf("dragged right, the selection is %d to %d, not from %d on", a, c, anchor)
+	}
+	tt.Release(300, 15)
+}

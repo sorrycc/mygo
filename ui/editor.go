@@ -240,7 +240,11 @@ func (ed *editor) process(c *context, e *node) {
 	if ed.queue == nil {
 		ed.queue = queue[:0]
 	}
-	if ed.dragging && st.pressed {
+	// A text area's drag goes on as it lays out (area.layout), over its
+	// text as the frame styles it: here, mid-build, its ranges may be
+	// those of no frame yet, and the text read without them would take
+	// the caret from under a pointer held still.
+	if ed.dragging && st.pressed && ed.area == nil {
 		rt := c.rt
 		x, y := st.local(rt.pointerX, rt.pointerY)
 		ed.drag(x, y)

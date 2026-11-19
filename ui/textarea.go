@@ -463,6 +463,18 @@ func (a *area) layout(e *node, cw, ch float32) {
 	// The text shows through the padding, inside the border.
 	above, below := e.pad[0], e.pad[2]
 	a.place(ed, ch, above, below)
+	if ed.dragging && st.pressed {
+		// The selection follows the pointer held, over the text as this
+		// frame lays it out.
+		from, to := ed.anchor, ed.caret
+		rt := e.c.rt
+		x, y := st.local(rt.pointerX, rt.pointerY)
+		ed.drag(x, y)
+		if ed.anchor != from || ed.caret != to {
+			// The view built this frame read the selection before.
+			rt.requestFrame()
+		}
+	}
 	if a.reveal {
 		a.reveal = false
 		_, y, h := a.caretAt(ed, ed.caret, ed.composeCaret)
