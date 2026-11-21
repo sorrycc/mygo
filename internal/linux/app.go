@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -111,6 +113,7 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		// fails (NVIDIA, VMs, containers).
 		_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 	}
+	restoreDataDirs()
 	if !gtkInitCheck(0, 0) {
 		return errors.New("mygo: cannot open display (is DISPLAY or WAYLAND_DISPLAY set?)")
 	}
@@ -130,6 +133,52 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	}
 	initCallbacks()
 	return nil
+}
+
+// restoreDataDirs adds the default data folders to XDG_DATA_DIRS when
+// none of its folders has the MIME database, as the shells of snaps and
+// containers can leave it. Without that database GTK cannot load its own
+// PNG icons and aborts building a file chooser. GLib reads the variable
+// once, so this runs before GTK starts.
+func restoreDataDirs() {
+	dirs := os.Getenv("XDG_DATA_DIRS")
+	if dirs == "" || dataDirsHaveMIME(dirs) {
+		// Unset, GLib takes the defaults itself.
+		return
+	}
+	var add []string
+	for _, d := range []string{"/usr/local/share", "/usr/share"} {
+		if !dataDirsName(dirs, d) {
+			add = append(add, d)
+		}
+	}
+	if len(add) > 0 {
+		_ = os.Setenv("XDG_DATA_DIRS", dirs+":"+strings.Join(add, ":"))
+	}
+}
+
+// dataDirsHaveMIME reports whether a folder of the XDG_DATA_DIRS list
+// dirs has the MIME database.
+func dataDirsHaveMIME(dirs string) bool {
+	for _, d := range filepath.SplitList(dirs) {
+		if d == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(d, "mime", "mime.cache")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// dataDirsName reports whether the folder list dirs names dir.
+func dataDirsName(dirs, dir string) bool {
+	for _, d := range filepath.SplitList(dirs) {
+		if filepath.Clean(d) == dir {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Backend) Run() error {

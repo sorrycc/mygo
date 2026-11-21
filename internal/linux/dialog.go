@@ -3,6 +3,8 @@
 package linux
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,6 +69,42 @@ func setupChooser(fc ptr, defaultPath string, filters []platform.FileFilter, hid
 	}
 }
 
+// What chooserProblem checks with; load binds them.
+var (
+	gdkPixbufNewFromResource        func(path *byte, err *ptr) ptr
+	gSettingsSchemaSourceGetDefault func() ptr
+	gSettingsSchemaSourceLookup     func(src ptr, id *byte, recursive bool) ptr
+	gSettingsSchemaUnref            func(schema ptr)
+)
+
+// chooserReady is set once a file chooser has been found safe to build.
+var chooserReady bool
+
+// chooserProblem says why GTK would abort building a file chooser, or nil.
+// GTK ends the process, with no error to catch, when it cannot load the
+// icon it falls back on, which needs the MIME database to tell PNG files
+// apart, or when the file chooser's settings schema is not installed.
+func chooserProblem() error {
+	if chooserReady {
+		return nil
+	}
+	var gerr ptr
+	pb := gdkPixbufNewFromResource(cs("/org/gtk/libgtk/icons/16x16/status/image-missing.png"), &gerr)
+	if pb == 0 {
+		return fmt.Errorf("mygo: GTK cannot load its icons, so it cannot show a file dialog (%v); install shared-mime-info, or put /usr/share in XDG_DATA_DIRS", gErr(gerr))
+	}
+	gObjectUnref(pb)
+	if src := gSettingsSchemaSourceGetDefault(); src == 0 {
+		return errors.New("mygo: no GSettings schemas are installed, so GTK cannot show a file dialog; put /usr/share in XDG_DATA_DIRS")
+	} else if schema := gSettingsSchemaSourceLookup(src, cs("org.gtk.Settings.FileChooser"), true); schema == 0 {
+		return errors.New("mygo: the GSettings schema org.gtk.Settings.FileChooser is not installed, so GTK cannot show a file dialog; install GTK 3's schemas")
+	} else {
+		gSettingsSchemaUnref(schema)
+	}
+	chooserReady = true
+	return nil
+}
+
 func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOptions, cb func([]string, error)) {
 	tx := platform.CurrentTexts()
 	action := int32(0) // GTK_FILE_CHOOSER_ACTION_OPEN
@@ -80,6 +118,10 @@ func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOp
 	accept := "_" + tx.Open
 	if o.ButtonLabel != "" {
 		accept = o.ButtonLabel
+	}
+	if err := chooserProblem(); err != nil {
+		cb(nil, err)
+		return
 	}
 	fc := gtkFileChooserNativeNew(cs(title), parentWindow(parent), action, cs(accept), cs("_"+tx.Cancel))
 	gtkFileChooserSetSelectMultiple(fc, o.Multiple)
@@ -101,6 +143,10 @@ func (d dialogs) ShowSaveDialog(parent platform.Window, o *platform.SaveDialogOp
 	accept := "_" + tx.Save
 	if o.ButtonLabel != "" {
 		accept = o.ButtonLabel
+	}
+	if err := chooserProblem(); err != nil {
+		cb("", err)
+		return
 	}
 	fc := gtkFileChooserNativeNew(cs(title), parentWindow(parent), 1, cs(accept), cs("_"+tx.Cancel)) // SAVE
 	gtkFileChooserSetDoOverwriteConfirm(fc, true)

@@ -613,6 +613,9 @@ func load() error {
 	mustBind(i, &gAppInfoGetID, "g_app_info_get_id")
 	mustBind(i, &gFileNewForPath, "g_file_new_for_path")
 	mustBind(i, &gFileGetURI, "g_file_get_uri")
+	mustBind(i, &gSettingsSchemaSourceGetDefault, "g_settings_schema_source_get_default")
+	mustBind(i, &gSettingsSchemaSourceLookup, "g_settings_schema_source_lookup")
+	mustBind(i, &gSettingsSchemaUnref, "g_settings_schema_unref")
 	mustBind(i, &gFileTrash, "g_file_trash")
 	mustBind(i, &gBusGetSync, "g_bus_get_sync")
 	mustBind(i, &gDBusConnectionEmitSignal, "g_dbus_connection_emit_signal")
@@ -664,6 +667,7 @@ func load() error {
 	mustBind(p, &gdkPixbufLoaderClose, "gdk_pixbuf_loader_close")
 	mustBind(p, &gdkPixbufLoaderGetPixbuf, "gdk_pixbuf_loader_get_pixbuf")
 	mustBind(p, &gdkPixbufSaveToBufferv, "gdk_pixbuf_save_to_bufferv")
+	mustBind(p, &gdkPixbufNewFromResource, "gdk_pixbuf_new_from_resource")
 
 	t := libGTK
 	mustBind(t, &gtkInitCheck, "gtk_init_check")
