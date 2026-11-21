@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf16"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -376,10 +377,12 @@ const nsUTF8StringEncoding = 4
 
 // nsString returns an autoreleased NSString.
 func nsString(s string) id {
-	if strings.HasPrefix(s, "\ufeff") {
+	if strings.HasPrefix(s, "\ufeff") || !utf8.ValidString(s) {
 		// Decoding UTF-8 drops a leading U+FEFF as a byte order mark, and
 		// the string would be a unit shorter than s; UTF-16 characters keep
-		// it.
+		// it. Decoding fails on bytes that are not UTF-8, and the string
+		// would be nil, which AppKit raises on; as runes, each such byte
+		// is a U+FFFD, a unit as Go counts it.
 		u := utf16.Encode([]rune(s))
 		str := send(send(class("NSString"), "alloc"), "initWithCharacters:length:",
 			uintptr(unsafe.Pointer(&u[0])), uintptr(len(u)))

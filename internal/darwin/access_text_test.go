@@ -23,6 +23,36 @@ func TestNSStringLeadingBOM(t *testing.T) {
 	})
 }
 
+// TestNSStringInvalidUTF8 makes strings of bytes that are not UTF-8,
+// which decoding UTF-8 makes nil, with a U+FFFD for each such byte.
+func TestNSStringInvalidUTF8(t *testing.T) {
+	load()
+	withPool(func() {
+		for _, s := range []string{"a\xffb", "\xff", "\xed\xa0\x80", "\ufeff\xfe", "日\x80本"} {
+			str := nsString(s)
+			if str == 0 {
+				t.Errorf("nsString(%q) = nil", s)
+				continue
+			}
+			want := len(utf16.Encode([]rune(s)))
+			if got := sendInt(str, "length"); got != want {
+				t.Errorf("nsString(%q) length = %d, want %d", s, got, want)
+			}
+		}
+	})
+}
+
+// TestAnnounceInvalidUTF8 announces text that is not UTF-8, as a toast
+// of an error quoting a file name can be: a nil string in the
+// announcement's dictionary raised and aborted the app.
+func TestAnnounceInvalidUTF8(t *testing.T) {
+	load()
+	loadAccess()
+	withPool(func() {
+		announce(send(class("NSApplication"), "sharedApplication"), "can't open caf\xe9.txt")
+	})
+}
+
 // TestAttributedAccessStringLeadingBOM asks for ranges of a value that
 // starts with U+FEFF, as VoiceOver does of a file saved with one: adding
 // attributes past the string's end raised and aborted the app.
