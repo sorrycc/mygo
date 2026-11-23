@@ -199,3 +199,104 @@ func TestTextGaps(t *testing.T) {
 		t.Errorf("gaps %v", ed.gaps)
 	}
 }
+
+// Up and Down step a line at a time by the edges of the lines: from a
+// paragraph with room above it (TextGaps) Up goes to the line above the
+// room, not back to the paragraph; a short line under a tall one is not
+// stepped over; a wrapped paragraph's lines are each a step; Shift selects
+// as it goes; and the caret keeps its x.
+func TestTextAreaUpDownStepLines(t *testing.T) {
+	s := "aaaa\n# heading\nbb\ncc\none two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
+	var el *node
+	tt := coreNewTester(func(c *context) {
+		el = coreTextAreaBase(c, &s).Fill().
+			TextRanges(TextRange{Start: 5, End: 14, Size: 40}).
+			TextGaps(TextGap{Para: 1, Height: 30})
+	}, 300, 600)
+	tt.Press(5, 5)
+	tt.Release(5, 5)
+	ed := el.st.editor
+	a := ed.area
+	if len(a.paraLayout(ed, 1).Lines) != 1 {
+		t.Fatalf("the heading wraps")
+	}
+	if g, h := a.paraLayout(ed, 1).Lines[0].Height, a.paraLayout(ed, 2).Height; g < 2*h {
+		t.Fatalf("the heading is %v high and the line under it %v", g, h)
+	}
+	if n := len(a.paraLayout(ed, 4).Lines); n < 3 {
+		t.Fatalf("the last paragraph wraps to %d lines", n)
+	}
+	para := func() int { return ed.buf.para(ed.caret) }
+	line := func() int {
+		p := para()
+		return a.paraLayout(ed, p).LineAt(a.local(ed, p, ed.caret))
+	}
+	at := func(i int) {
+		ed.anchor, ed.caret, ed.hasDesired = i, i, false
+		tt.Frame()
+	}
+
+	// Up from the heading, the room above it twice its line's half.
+	at(7)
+	tt.Key(0, KeyUp)
+	if ed.caret != 4 {
+		t.Errorf("Up from the heading went to %d, want 4 at the end of the line above", ed.caret)
+	}
+	tt.Key(0, KeyDown)
+	if ed.caret != 7 {
+		t.Errorf("Down came back to %d, want 7", ed.caret)
+	}
+	// Down from the tall heading goes to the short line under it.
+	tt.Key(0, KeyDown)
+	if para() != 2 {
+		t.Errorf("Down from the heading went to paragraph %d, want 2", para())
+	}
+	tt.Key(0, KeyUp)
+	if para() != 1 {
+		t.Errorf("Up from the short line went to paragraph %d, want the heading", para())
+	}
+	// Shift selects from the heading to the line above, and back.
+	at(7)
+	tt.Key(Shift, KeyUp)
+	if ed.anchor != 7 || ed.caret != 4 {
+		t.Errorf("Shift-Up selected %d to %d, want 7 to 4", ed.anchor, ed.caret)
+	}
+	tt.Key(Shift, KeyDown)
+	if ed.anchor != 7 || ed.caret != 7 {
+		t.Errorf("Shift-Down selected %d to %d, want back to 7", ed.anchor, ed.caret)
+	}
+	// Each line of a wrapped paragraph is a step, at the same x.
+	at(ed.buf.n)
+	last := len(a.paraLayout(ed, 4).Lines) - 1
+	x0, _, _ := a.caretAt(ed, ed.caret, 0)
+	for k := last - 1; k >= 0; k-- {
+		tt.Key(0, KeyUp)
+		if para() != 4 || line() != k {
+			t.Fatalf("Up went to paragraph %d line %d, want 4 line %d", para(), line(), k)
+		}
+	}
+	tt.Key(0, KeyUp)
+	if para() != 3 {
+		t.Errorf("Up from the wrapped paragraph went to paragraph %d, want 3", para())
+	}
+	for k := 0; k <= last; k++ {
+		tt.Key(0, KeyDown)
+		if para() != 4 || line() != k {
+			t.Fatalf("Down went to paragraph %d line %d, want 4 line %d", para(), line(), k)
+		}
+	}
+	if x, _, _ := a.caretAt(ed, ed.caret, 0); x > x0+0.5 || x < x0-0.5 && ed.caret != ed.buf.n {
+		t.Errorf("the caret came back at x %v, from %v", x, x0)
+	}
+	// Up from the first line goes to the start, Down from the last to the end.
+	at(2)
+	tt.Key(0, KeyUp)
+	if ed.caret != 0 {
+		t.Errorf("Up from the first line went to %d", ed.caret)
+	}
+	at(ed.buf.n - 2)
+	tt.Key(0, KeyDown)
+	if ed.caret != ed.buf.n {
+		t.Errorf("Down from the last line went to %d", ed.caret)
+	}
+}

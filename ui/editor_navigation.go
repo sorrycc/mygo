@@ -127,6 +127,10 @@ func (ed *editor) vertical(lines int, extend bool) {
 		if !ed.hasDesired {
 			ed.desiredX, ed.hasDesired = x, true
 		}
+		if lines == 1 || lines == -1 {
+			ed.stepLine(a, y, h, lines, extend)
+			return
+		}
 		target := y + float64(h)/2 + float64(lines)*float64(h)
 		switch {
 		case target < 0:
@@ -157,6 +161,31 @@ func (ed *editor) vertical(lines int, extend bool) {
 	p := ed.layout.PositionAt(ed.desiredX, target)
 	p.Index = ed.textIndex(p.Index)
 	ed.movePosition(p, extend)
+}
+
+// stepLine moves the caret of a text area to the visual line next above
+// (dir -1) or below (1) its own, at y and h high, keeping its x. It goes
+// by the edges of the lines rather than by the caret's height, so a line
+// of another height is not stepped over, and the room above a paragraph
+// (TextGaps) is not taken for a line before its first.
+func (ed *editor) stepLine(a *area, y float64, h float32, dir int, extend bool) {
+	const nudge = 0.5 // into the next line, past the edge shared with it
+	target := y + float64(h) + nudge
+	if dir < 0 {
+		target = y - nudge
+		p := ed.buf.para(ed.caret)
+		if top := a.hs.top(p); target < top+float64(a.paraLayout(ed, p).Lines[0].Y) {
+			target = top - nudge
+		}
+	}
+	switch {
+	case target < 0:
+		ed.move(0, extend)
+	case target > a.hs.top(len(ed.buf.paras)):
+		ed.move(ed.buf.n, extend)
+	default:
+		ed.movePosition(a.positionAt(ed, ed.desiredX, target), extend)
+	}
 }
 
 // emacsKeys are the Control keys of macOS text fields that act as other
