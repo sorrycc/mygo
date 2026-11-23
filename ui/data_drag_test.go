@@ -84,29 +84,41 @@ func TestNativeTypedDropKeepsGoValue(t *testing.T) {
 	source.h.finishDataDrag(transfer.Result{Operation: d.Operation})
 }
 
-func TestNativeDragCancellationAndSourceRemoval(t *testing.T) {
-	for _, remove := range []bool{false, true} {
-		t.Run(map[bool]string{false: "escape", true: "source removal"}[remove], func(t *testing.T) {
-			show := true
-			var results []transfer.Result
-			tt := coreNewTester(func(c *context) {
-				if show {
-					coreBox(c).Size(80, 40).DragData(transfer.TextData("a"), transfer.DragOptions{Done: func(r transfer.Result) { results = append(results, r) }})
-				}
-			}, 200, 200)
-			beginNativeDrag(tt)
-			if remove {
-				show = false
-				tt.Frame()
-			} else {
-				tt.Key(0, KeyEscape)
-			}
-			tt.Release(80, 80)
-			tt.h.finishDataDrag(transfer.Result{Operation: transfer.Copy})
-			if len(results) != 1 || !results[0].Canceled || tt.rt.drag != nil || tt.h.dragLocal != nil {
-				t.Fatalf("results %v, drag %v", results, tt.rt.drag)
-			}
-		})
+func TestNativeDragCancellation(t *testing.T) {
+	var results []transfer.Result
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Size(80, 40).DragData(transfer.TextData("a"), transfer.DragOptions{Done: func(r transfer.Result) { results = append(results, r) }})
+	}, 200, 200)
+	beginNativeDrag(tt)
+	tt.Key(0, KeyEscape)
+	tt.Release(80, 80)
+	tt.h.finishDataDrag(transfer.Result{Operation: transfer.Copy})
+	if len(results) != 1 || !results[0].Canceled || tt.rt.drag != nil || tt.h.dragLocal != nil {
+		t.Fatalf("results %v, drag %v", results, tt.rt.drag)
+	}
+}
+
+// A native transfer whose source the frame builds no more, as a row a list
+// scrolled away, goes on until it is let go of.
+func TestNativeDragSourceGone(t *testing.T) {
+	show := true
+	var results []transfer.Result
+	tt := coreNewTester(func(c *context) {
+		if show {
+			coreBox(c).Size(80, 40).DragData(transfer.TextData("a"), transfer.DragOptions{Done: func(r transfer.Result) { results = append(results, r) }})
+		}
+	}, 200, 200)
+	beginNativeDrag(tt)
+	show = false
+	tt.Frame()
+	if len(results) != 0 || tt.rt.drag == nil || !tt.rt.drag.native {
+		t.Fatalf("the drag ended with its source: results %v, drag %v", results, tt.rt.drag)
+	}
+	show = true
+	tt.Frame()
+	tt.h.finishDataDrag(transfer.Result{Operation: transfer.Copy})
+	if len(results) != 1 || results[0].Canceled || results[0].Operation != transfer.Copy || tt.rt.drag != nil {
+		t.Fatalf("results %v, drag %v", results, tt.rt.drag)
 	}
 }
 

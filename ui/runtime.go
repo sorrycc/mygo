@@ -958,17 +958,13 @@ func (rt *engine) forgetInput() {
 // prune forgets the elements the frame did not build, but those of the
 // pages Routers keep.
 func (rt *engine) prune() {
-	if d := rt.drag; d != nil && d.native {
-		if s := rt.states[d.src]; s == nil || s.seen != rt.frame || s.pass != rt.pass {
-			rt.host.cancelDataDrag()
-		}
-	}
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
-			if d := rt.drag; d != nil && !d.native && d.src == id {
-				// The source of a value dragged within the window, as one
-				// in a view that went away: the press goes on dragging
-				// it, until it is let go of, to drop it.
+			if d := rt.drag; d != nil && d.src == id {
+				// The source of a value or a native transfer dragged, as a
+				// row a list scrolled away or one in a view that went
+				// away: the press goes on dragging it, until it is let go
+				// of, to drop it.
 				continue
 			}
 			if rt.pressed == s {
