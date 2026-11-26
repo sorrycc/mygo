@@ -81,6 +81,12 @@ ui.TextArea(c, &app.notes).Height(160)
   })
   ```
 
+  `k.Selection()` is the selection as the key comes, and `k.CaretLine()`
+  the visual line the caret is on, of how many, as the text area wraps
+  them: a composer that brings back the messages sent before with Up and
+  Down only from its first and last lines leaves the key to the editor
+  elsewhere, wrapped lines too.
+
 A `TextInput` too narrow for its text keeps the caret in view while it has
 the focus, and shows the start of its text without it.
 
