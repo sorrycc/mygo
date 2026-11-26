@@ -99,7 +99,9 @@ func (l *Layout) visualStops(li int) []caretStop {
 	return stops
 }
 
-func (l *Layout) caretLine(p CaretPosition) int {
+// CaretLine returns the line the caret at p is drawn on: the line before
+// a soft break for a caret upstream at it.
+func (l *Layout) CaretLine(p CaretPosition) int {
 	li := l.LineAt(p.Index)
 	if p.Affinity == Upstream && li > 0 && l.Lines[li].Start == p.Index && l.Lines[li-1].End == p.Index {
 		li--
@@ -113,7 +115,7 @@ func (l *Layout) CaretAt(p CaretPosition) (x, y, h float32) {
 		return 0, 0, 0
 	}
 	p.Index = max(0, min(p.Index, len(l.Runes)))
-	li := l.caretLine(p)
+	li := l.CaretLine(p)
 	l.visualStops(li)
 	line := &l.Lines[li]
 	i := max(0, min(p.Index-line.Start, len(line.carets)-1))
@@ -182,7 +184,7 @@ func (l *Layout) MoveCaret(p CaretPosition, direction int) CaretPosition {
 	} else {
 		direction = 1
 	}
-	li := l.caretLine(p)
+	li := l.CaretLine(p)
 	x, _, _ := l.CaretAt(p)
 	stops := l.visualStops(li)
 	if direction > 0 {
@@ -219,7 +221,7 @@ func (l *Layout) SelectionRanges(a, b CaretPosition) []Range {
 	if len(l.Lines) == 0 {
 		return nil
 	}
-	ai, bi := l.caretLine(a), l.caretLine(b)
+	ai, bi := l.CaretLine(a), l.CaretLine(b)
 	ax, _, _ := l.CaretAt(a)
 	bx, _, _ := l.CaretAt(b)
 	if ai > bi {

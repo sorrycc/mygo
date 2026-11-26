@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -742,6 +743,113 @@ func TestOnTextKeySeesModifiersAndHolds(t *testing.T) {
 	tt.Frame()
 	if text != "\n" {
 		t.Fatalf("after the hold lapsed: text %q, want a newline", text)
+	}
+}
+
+// CaretLine counts the lines as the text area wraps them, not its
+// paragraphs: Up and Down step a line from any but the first and the last,
+// across soft wraps and hard breaks alike, and a width that wraps the text
+// again counts again. Selection is where the keys typed before left it.
+func TestTextKeyCaretLine(t *testing.T) {
+	text, width := "", float32(120)
+	type seen struct{ line, lines, from, to int }
+	var got []seen
+	tt := coreNewTester(func(c *context) {
+		in := coreTextAreaBase(c, &text).Width(width).Label("draft")
+		in.OnTextKey(func(k TextKey) bool {
+			if k.Key == KeyF5 {
+				line, lines := k.CaretLine()
+				from, to := k.Selection()
+				got = append(got, seen{line, lines, from, to})
+				return true
+			}
+			return false
+		})
+	}, 400, 300)
+	probe := func() seen {
+		t.Helper()
+		got = nil
+		tt.Key(0, KeyF5)
+		if len(got) != 1 {
+			t.Fatalf("F5 seen %d times", len(got))
+		}
+		return got[0]
+	}
+	tt.Click("draft")
+	long := strings.Repeat("wrap me ", 12)
+	tt.Type(long)
+	// No frame since: the caret is where the typing left it.
+	end := probe()
+	n := len([]rune(long))
+	if end.lines < 3 || end.line != end.lines-1 || end.from != n || end.to != n {
+		t.Fatalf("at the end: %+v, want the last of 3 or more lines at %d", end, n)
+	}
+	for want := end.line - 1; want >= 0; want-- {
+		tt.Key(0, KeyUp)
+		if s := probe(); s.line != want || s.lines != end.lines || s.from != s.to {
+			t.Fatalf("Up: %+v, want line %d of %d", s, want, end.lines)
+		}
+	}
+	// The end of a wrapped line, clicked, is drawn on it, upstream of the
+	// break, though its rune starts the next.
+	r, _ := tt.Find("draft")
+	tt.ClickAt(r.X+r.W-2, r.Y+r.H/float32(end.lines)/2)
+	if s := probe(); s.line != 0 || s.from == 0 || s.from >= n {
+		t.Fatalf("end of the first line: %+v", s)
+	}
+	tt.Key(0, KeyDown)
+	if s := probe(); s.line != 1 {
+		t.Fatalf("Down from the end of the first line: %+v", s)
+	}
+	tt.Key(Shift, KeyLeft)
+	if s := probe(); s.to-s.from != 1 {
+		t.Fatalf("Shift+Left: selection %+v, want one rune", s)
+	}
+
+	// A hard break and a wrapped paragraph after it.
+	tt.Key(Cmd, KeyA)
+	tt.Type("one\n" + long)
+	mixed := probe()
+	if mixed.lines != end.lines+1 || mixed.line != mixed.lines-1 {
+		t.Fatalf("mixed: %+v, want %d lines", mixed, end.lines+1)
+	}
+	for want := mixed.line - 1; want >= 0; want-- {
+		tt.Key(0, KeyUp)
+		if s := probe(); s.line != want {
+			t.Fatalf("mixed Up: %+v, want line %d", s, want)
+		}
+	}
+	if s := probe(); s.from > 3 {
+		t.Fatalf("on the first line, the caret at %d", s.from)
+	}
+
+	// Wider, the paragraph wraps on fewer lines.
+	width = 1000
+	tt.Frame()
+	if s := probe(); s.lines != 2 || s.line != 0 {
+		t.Fatalf("wide: %+v, want line 0 of 2", s)
+	}
+	tt.Key(0, KeyDown)
+	if s := probe(); s.line != 1 || s.lines != 2 {
+		t.Fatalf("wide Down: %+v, want line 1 of 2", s)
+	}
+}
+
+// A single-line input is one line, wherever its caret.
+func TestTextKeyCaretLineSingle(t *testing.T) {
+	text := ""
+	line, lines := -1, -1
+	tt := coreNewTester(func(c *context) {
+		coreTextInputBase(c, &text).Width(40).Label("name").OnTextKey(func(k TextKey) bool {
+			line, lines = k.CaretLine()
+			return false
+		})
+	}, 200, 50)
+	tt.Click("name")
+	tt.Type(strings.Repeat("long ", 10))
+	tt.Key(0, KeyLeft)
+	if line != 0 || lines != 1 {
+		t.Fatalf("single line: %d of %d", line, lines)
 	}
 }
 

@@ -3,6 +3,7 @@ package ui
 import (
 	"slices"
 
+	"github.com/egoist/mygo/internal/text"
 	transfer "github.com/egoist/mygo/transfer"
 )
 
@@ -183,6 +184,42 @@ func (k TextKey) SetText(s string) {
 		w.rt.consumed = true
 		w.rt.requestFrame()
 	}
+}
+
+// Selection returns the selection of the input as the key comes, as
+// offsets in runes into its text, the caret where start equals end: where
+// the keys typed before it left it, which the view has not yet seen.
+func (k TextKey) Selection() (start, end int) { return k.valid().selection() }
+
+// CaretLine returns the visual line the caret is on as the key comes,
+// counting the lines of the whole text as wrapped at its width, and how
+// many there are: 0, 1 in a single-line input. A caret at a soft break is
+// on the line it is drawn on. Up moves the caret a line unless line is 0,
+// and Down unless it is lines-1, as a composer that brings back the
+// messages sent before only from there finds:
+//
+//	if k.Key == ui.KeyUp && k.Mods == 0 {
+//		if line, _ := k.CaretLine(); line == 0 {
+//			k.SetText(app.lastSent)
+//			return true
+//		}
+//	}
+func (k TextKey) CaretLine() (line, lines int) {
+	ed := k.valid()
+	a := ed.area
+	if a == nil {
+		return 0, 1
+	}
+	b := &ed.buf
+	at := b.para(ed.caret)
+	for p := range b.paras {
+		l := a.paraLayout(ed, p)
+		if p == at && len(l.Lines) > 0 {
+			line = lines + l.CaretLine(text.CaretPosition{Index: a.local(ed, p, ed.caret), Affinity: ed.caretAffinity})
+		}
+		lines += max(len(l.Lines), 1)
+	}
+	return line, lines
 }
 
 // Lines makes a text area as high as its text, wrapped at its width, from
